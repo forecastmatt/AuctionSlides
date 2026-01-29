@@ -467,12 +467,15 @@
   <!-- Share / Receive -->
   <div class="share-section">
     <h3>Share Slides</h3>
-    <div class="share-btn-row" id="shareRow">
-      <input type="text" class="share-input" id="shareCodeInput" placeholder="Enter a room code">
-      <button class="btn btn-secondary" id="shareBtn">Share Slides</button>
-      <button class="btn btn-secondary" id="receiveBtn">Receive Slides</button>
+    <div id="shareIdle">
+      <div class="share-btn-row">
+        <input type="text" class="share-input" id="shareCodeInput" placeholder="Room code">
+        <button class="btn btn-secondary" id="shareBtn">Share Slides</button>
+        <button class="btn btn-secondary" id="receiveBtn">Receive Slides</button>
+      </div>
+      <div class="share-status" style="margin-top:6px;">Enter a room code, then Share or Receive.</div>
     </div>
-    <div id="shareUI" style="display:none; margin-top:10px;">
+    <div id="shareUI" style="display:none;">
       <div class="share-btn-row">
         <span>Room code:</span>
         <span class="share-code" id="shareCode"></span>
@@ -481,10 +484,9 @@
       <div class="share-status" id="shareStatus">Waiting for receiver to connect...</div>
       <div class="share-progress" id="shareProgress"><div class="share-progress-bar" id="shareProgressBar"></div></div>
     </div>
-    <div id="receiveUI" style="display:none; margin-top:10px;">
+    <div id="receiveUI" style="display:none;">
       <div class="share-btn-row">
-        <input type="text" class="share-input" id="receiveCodeInput" placeholder="Enter room code">
-        <button class="btn btn-primary" id="receiveConnectBtn" style="padding:8px 18px; font-size:0.9rem;">Connect</button>
+        <span>Connecting to: <span class="share-code" id="receiveCodeDisplay"></span></span>
         <button class="btn btn-secondary" id="receiveCancelBtn" style="padding:6px 14px; font-size:0.8rem;">Cancel</button>
       </div>
       <div class="share-status" id="receiveStatus"></div>
@@ -1130,9 +1132,7 @@ document.getElementById('shareBtn').addEventListener('click', () => {
   if (queue.length === 0) { alert('No slides to share.'); return; }
   const customCode = document.getElementById('shareCodeInput').value.trim().toUpperCase();
   if (!customCode) { alert('Enter a room code.'); return; }
-  document.getElementById('shareRow').querySelector('#shareBtn').style.display = 'none';
-  document.getElementById('shareRow').querySelector('#receiveBtn').style.display = 'none';
-  document.getElementById('shareCodeInput').style.display = 'none';
+  document.getElementById('shareIdle').style.display = 'none';
   const shareUI = document.getElementById('shareUI');
   shareUI.style.display = 'block';
   const statusEl = document.getElementById('shareStatus');
@@ -1208,18 +1208,19 @@ document.getElementById('shareCancelBtn').addEventListener('click', () => {
   document.getElementById('shareUI').style.display = 'none';
   document.getElementById('shareProgress').style.display = 'none';
   document.getElementById('shareProgressBar').style.width = '0%';
-  document.getElementById('shareRow').querySelector('#shareBtn').style.display = '';
-  document.getElementById('shareRow').querySelector('#receiveBtn').style.display = '';
-  document.getElementById('shareCodeInput').style.display = '';
+  document.getElementById('shareIdle').style.display = '';
 });
 
 // Receiver
 document.getElementById('receiveBtn').addEventListener('click', () => {
-  document.getElementById('shareRow').querySelector('#shareBtn').style.display = 'none';
-  document.getElementById('shareRow').querySelector('#receiveBtn').style.display = 'none';
+  const customCode = document.getElementById('shareCodeInput').value.trim().toUpperCase();
+  if (!customCode) { alert('Enter a room code.'); return; }
+  const code = 'AUCTION-' + customCode.replace(/[^A-Z0-9]/g, '');
+  document.getElementById('shareIdle').style.display = 'none';
   document.getElementById('receiveUI').style.display = 'block';
-  document.getElementById('receiveCodeInput').value = '';
+  document.getElementById('receiveCodeDisplay').textContent = code;
   document.getElementById('receiveStatus').textContent = '';
+  startReceive(code);
 });
 
 document.getElementById('receiveCancelBtn').addEventListener('click', () => {
@@ -1227,13 +1228,10 @@ document.getElementById('receiveCancelBtn').addEventListener('click', () => {
   document.getElementById('receiveUI').style.display = 'none';
   document.getElementById('receiveProgress').style.display = 'none';
   document.getElementById('receiveProgressBar').style.width = '0%';
-  document.getElementById('shareRow').querySelector('#shareBtn').style.display = '';
-  document.getElementById('shareRow').querySelector('#receiveBtn').style.display = '';
+  document.getElementById('shareIdle').style.display = '';
 });
 
-document.getElementById('receiveConnectBtn').addEventListener('click', () => {
-  const code = document.getElementById('receiveCodeInput').value.trim().toUpperCase();
-  if (!code) { alert('Enter a room code.'); return; }
+function startReceive(code) {
   const statusEl = document.getElementById('receiveStatus');
   const progressEl = document.getElementById('receiveProgress');
   const progressBar = document.getElementById('receiveProgressBar');
@@ -1321,7 +1319,7 @@ document.getElementById('receiveConnectBtn').addEventListener('click', () => {
   sharePeer.on('error', (err) => {
     statusEl.textContent = 'Error: ' + err.message;
   });
-});
+}
 </script>
 </body>
 </html>
