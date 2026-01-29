@@ -418,6 +418,7 @@ let countdownInterval = null;
 let slideshowTimeout = null;
 let currentIndex = 0;
 let running = false;
+let wakeLock = null;
 
 // ── IndexedDB persistence ──
 const DB_NAME = 'AuctionSlidesDB';
@@ -815,6 +816,11 @@ function startPresentation() {
 
   // Countdown is already running from page load — no need to restart
 
+  // Keep screen awake
+  if ('wakeLock' in navigator) {
+    navigator.wakeLock.request('screen').then(lock => { wakeLock = lock; }).catch(() => {});
+  }
+
   // Enter fullscreen
   if (document.documentElement.requestFullscreen) {
     document.documentElement.requestFullscreen().catch(() => {});
@@ -827,6 +833,9 @@ function startPresentation() {
 function stopPresentation() {
   running = false;
   clearTimeout(slideshowTimeout);
+
+  // Release wake lock
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 
   // Remove any media from stage
   stage.innerHTML = '';
