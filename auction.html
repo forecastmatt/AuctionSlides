@@ -89,13 +89,22 @@
     cursor: pointer;
   }
 
+  /* ── Section headings ── */
+  .section-heading {
+    font-size: 0.95rem;
+    color: #e2b04a;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #333;
+  }
+
   /* ── Queue list ── */
   #queueList {
     list-style: none;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin-bottom: 28px;
+    margin-bottom: 16px;
   }
   #queueList li {
     display: flex;
@@ -174,6 +183,7 @@
     gap: 12px;
     justify-content: center;
     flex-wrap: wrap;
+    margin-bottom: 32px;
   }
   .btn {
     padding: 12px 28px;
@@ -455,6 +465,7 @@
   </div>
 
   <!-- Queue -->
+  <h3 class="section-heading">Slides</h3>
   <ul id="queueList"></ul>
   <p class="empty-msg" id="emptyMsg">No files yet. Drop some above.</p>
 
