@@ -227,6 +227,7 @@
     text-align: center;
     border-radius: 10px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    transition: opacity 1s ease;
   }
   #headerOverlay .header-text {
     font-size: 2.6rem;
@@ -413,7 +414,7 @@
 
 <script>
 // ── State ──
-const queue = []; // { file, objectURL, type:'image'|'video', seconds:number, useFullLength:boolean, duration:number|null, muted:boolean }
+const queue = []; // { file, objectURL, type:'image'|'video', seconds:number, useFullLength:boolean, duration:number|null, muted:boolean, hideHeader:boolean }
 let countdownInterval = null;
 let slideshowTimeout = null;
 let currentIndex = 0;
@@ -465,6 +466,7 @@ async function saveQueueToDB() {
       seconds: item.seconds,
       useFullLength: item.useFullLength,
       muted: item.muted,
+      hideHeader: item.hideHeader,
     });
   }
 
@@ -532,6 +534,7 @@ async function loadQueueFromDB() {
         seconds: entry.seconds,
         useFullLength: entry.useFullLength,
         muted: entry.muted || false,
+        hideHeader: entry.hideHeader || false,
         duration: null,
       };
       queue.push(item);
@@ -697,6 +700,20 @@ function renderQueue() {
       li.appendChild(timerInput);
     }
 
+    // Hide header toggle
+    const hideHeaderLabel = document.createElement('label');
+    hideHeaderLabel.className = 'use-full-length';
+    const hideHeaderCheck = document.createElement('input');
+    hideHeaderCheck.type = 'checkbox';
+    hideHeaderCheck.checked = item.hideHeader;
+    hideHeaderCheck.addEventListener('change', () => {
+      item.hideHeader = hideHeaderCheck.checked;
+      saveQueueToDB();
+    });
+    hideHeaderLabel.appendChild(hideHeaderCheck);
+    hideHeaderLabel.appendChild(document.createTextNode(' Hide countdown'));
+    li.appendChild(hideHeaderLabel);
+
     // Remove
     const removeBtn = document.createElement('button');
     removeBtn.className = 'remove-btn';
@@ -752,6 +769,7 @@ function addFiles(files) {
       seconds: defaultSec,
       useFullLength: type === 'video',
       muted: false,
+      hideHeader: false,
       duration: null,
     };
     queue.push(item);
@@ -931,6 +949,10 @@ function showItem(index) {
 function showItemActual(item, index) {
   if (!running) return;
   stage.innerHTML = '';
+
+  // Fade header in/out based on per-slide setting
+  const overlay = document.getElementById('headerOverlay');
+  overlay.style.opacity = item.hideHeader ? '0' : '1';
 
   if (item.type === 'image') {
     const img = document.createElement('img');
