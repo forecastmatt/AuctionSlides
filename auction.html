@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auction Slides</title>
+<style>
+  /* ── Reset ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #1a1a2e;
+    color: #eee;
+    min-height: 100vh;
+  }
+
+  /* ── CONTROL DECK (setup screen) ── */
+  #controlDeck {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 30px 20px;
+  }
+
+  #controlDeck h1 {
+    text-align: center;
+    font-size: 1.8rem;
+    margin-bottom: 6px;
+    color: #e2b04a;
+  }
+  #controlDeck .subtitle {
+    text-align: center;
+    color: #888;
+    margin-bottom: 28px;
+    font-size: 0.9rem;
+  }
+
+  /* ── Settings row ── */
+  .settings-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    margin-bottom: 24px;
+  }
+  .settings-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: #aaa;
+  }
+  .settings-row select,
+  .settings-row input[type="text"],
+  .settings-row input[type="number"] {
+    padding: 8px 12px;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: #16213e;
+    color: #eee;
+    font-size: 1rem;
+    width: 160px;
+  }
+
+  /* ── Header text setting ── */
+  .settings-row input.wide { width: 300px; }
+
+  /* ── Drop zone ── */
+  #dropZone {
+    border: 2px dashed #444;
+    border-radius: 12px;
+    padding: 50px 20px;
+    text-align: center;
+    color: #777;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 24px;
+    position: relative;
+  }
+  #dropZone.dragover {
+    border-color: #e2b04a;
+    background: rgba(226, 176, 74, 0.06);
+  }
+  #dropZone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  /* ── Queue list ── */
+  #queueList {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 28px;
+  }
+  #queueList li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #16213e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 10px 14px;
+    cursor: grab;
+  }
+  #queueList li.dragging {
+    opacity: 0.4;
+  }
+  #queueList li .thumb {
+    width: 64px;
+    height: 44px;
+    object-fit: cover;
+    border-radius: 4px;
+    background: #000;
+    flex-shrink: 0;
+  }
+  #queueList li .file-name {
+    flex: 1;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #queueList li .file-type {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+  .file-type.image { background: #1b4332; color: #95d5b2; }
+  .file-type.video { background: #3c1642; color: #d4a5e5; }
+
+  #queueList li .timer-input {
+    width: 60px;
+    padding: 6px 8px;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: #0f3460;
+    color: #eee;
+    font-size: 0.9rem;
+    text-align: center;
+  }
+  #queueList li .timer-label {
+    font-size: 0.75rem;
+    color: #888;
+    white-space: nowrap;
+  }
+  #queueList li .use-full-length {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: #888;
+    white-space: nowrap;
+  }
+
+  #queueList li .remove-btn {
+    background: none;
+    border: none;
+    color: #c0392b;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+  }
+
+  /* ── Buttons ── */
+  .btn-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .btn {
+    padding: 12px 28px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+  }
+  .btn-primary {
+    background: #e2b04a;
+    color: #1a1a2e;
+  }
+  .btn-primary:hover { background: #d4a03a; }
+  .btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .btn-secondary {
+    background: #333;
+    color: #eee;
+  }
+  .btn-secondary:hover { background: #444; }
+
+  .empty-msg {
+    text-align: center;
+    color: #555;
+    padding: 20px;
+    font-size: 0.9rem;
+  }
+
+  /* ── PRESENTATION (fullscreen display) ── */
+  #presentation {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #000;
+    z-index: 9999;
+    overflow: hidden;
+  }
+
+  /* ── Sticky header overlay ── */
+  #headerOverlay {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 10;
+    background: rgb(0,80,0);
+    padding: 16px 28px;
+    text-align: center;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  #headerOverlay .header-text {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #e2b04a;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    margin-bottom: 4px;
+  }
+  #headerOverlay .countdown {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+    letter-spacing: 2px;
+  }
+  #headerOverlay .countdown.done {
+    color: #27ae60;
+    font-size: 1.8rem;
+  }
+
+  /* ── Fullscreen takeover when countdown ends ── */
+  #headerOverlay.takeover {
+    inset: 0;
+    top: 0;
+    left: 0;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+  }
+  #headerOverlay.takeover .countdown.done {
+    font-size: 12vw;
+    line-height: 1.1;
+    padding: 0 5vw;
+    word-break: break-word;
+  }
+
+  /* ── Media stage ── */
+  #stage {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #stage img, #stage video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: opacity 0.8s ease;
+    opacity: 0;
+  }
+  #stage img.visible, #stage video.visible {
+    opacity: 1;
+  }
+
+  /* ── Exit button (small, top-right) ── */
+  #exitBtn {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    z-index: 20;
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #aaa;
+    font-size: 0.8rem;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #presentation:hover #exitBtn { opacity: 1; }
+
+  /* ── Loop toggle ── */
+  .loop-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: #aaa;
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- CONTROL DECK                                     -->
+<!-- ════════════════════════════════════════════════ -->
+<div id="controlDeck">
+  <h1>Auction Slides</h1>
+  <p class="subtitle">Upload media, set your times, and project.</p>
+
+  <!-- Settings -->
+  <div class="settings-row">
+    <label>
+      Header Text (optional)
+      <input type="text" id="headerText" class="wide" placeholder="e.g. Auction Starting In" value="Auction Starting In">
+    </label>
+    <label>
+      Auction Date
+      <input type="date" id="startDate">
+    </label>
+    <label>
+      Hour
+      <select id="startHour">
+        <option value="">--</option>
+        <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+        <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+        <option value="7" selected>7</option><option value="8">8</option><option value="9">9</option>
+        <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+      </select>
+    </label>
+    <label>
+      Min
+      <select id="startMinute">
+        <option value="00" selected>00</option><option value="05">05</option>
+        <option value="10">10</option><option value="15">15</option>
+        <option value="20">20</option><option value="25">25</option>
+        <option value="30">30</option><option value="35">35</option>
+        <option value="40">40</option><option value="45">45</option>
+        <option value="50">50</option><option value="55">55</option>
+      </select>
+    </label>
+    <label>
+      AM/PM
+      <select id="startPeriod">
+        <option value="AM">AM</option>
+        <option value="PM" selected>PM</option>
+      </select>
+    </label>
+    <label>
+      Default Seconds (images)
+      <input type="number" id="defaultSeconds" value="10" min="1" max="300">
+    </label>
+    <label>
+      Countdown End Text
+      <input type="text" id="countdownEndText" class="wide" placeholder="e.g. Bidding is LIVE!" value="Bidding is LIVE!">
+    </label>
+  </div>
+
+  <!-- Live countdown preview on control deck -->
+  <div id="countdownPreview" style="text-align:center; margin-bottom:20px; font-size:1.4rem; color:#e2b04a; font-variant-numeric:tabular-nums;"></div>
+
+  <div class="settings-row">
+    <label class="loop-toggle">
+      <input type="checkbox" id="loopQueue" checked>
+      Loop slideshow until auction starts
+    </label>
+  </div>
+
+  <!-- Drop Zone -->
+  <div id="dropZone">
+    Drag &amp; drop photos and videos here, or click to browse
+    <input type="file" id="fileInput" multiple accept="image/*,video/*">
+  </div>
+
+  <!-- Queue -->
+  <ul id="queueList"></ul>
+  <p class="empty-msg" id="emptyMsg">No files yet. Drop some above.</p>
+
+  <!-- Actions -->
+  <div class="btn-row">
+    <button class="btn btn-primary" id="goBtn" disabled>Go Fullscreen</button>
+    <button class="btn btn-secondary" id="clearBtn">Clear All</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- PRESENTATION                                     -->
+<!-- ════════════════════════════════════════════════ -->
+<div id="presentation">
+  <div id="headerOverlay">
+    <div class="header-text" id="liveHeaderText"></div>
+    <div class="countdown" id="liveCountdown"></div>
+  </div>
+  <div id="stage"></div>
+  <button id="exitBtn">ESC &mdash; Exit</button>
+</div>
+
+<script>
+// ── State ──
+const queue = []; // { file, objectURL, type:'image'|'video', seconds:number, useFullLength:boolean, duration:number|null }
+let countdownInterval = null;
+let slideshowTimeout = null;
+let currentIndex = 0;
+let running = false;
+
+// ── IndexedDB persistence ──
+const DB_NAME = 'AuctionSlidesDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'media';
+const SETTINGS_STORE = 'settings';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
+        db.createObjectStore(SETTINGS_STORE, { keyPath: 'key' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveQueueToDB() {
+  const db = await openDB();
+  const tx = db.transaction([STORE_NAME, SETTINGS_STORE], 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  const settingsStore = tx.objectStore(SETTINGS_STORE);
+
+  // Clear existing media entries
+  store.clear();
+
+  // Save each queue item as a blob with metadata
+  for (let i = 0; i < queue.length; i++) {
+    const item = queue[i];
+    const blob = item.file;
+    store.put({
+      id: i,
+      blob: blob,
+      name: item.file.name,
+      mimeType: item.file.type,
+      type: item.type,
+      seconds: item.seconds,
+      useFullLength: item.useFullLength,
+    });
+  }
+
+  // Save settings
+  settingsStore.put({ key: 'headerText', value: headerTextIn.value });
+  settingsStore.put({ key: 'startDate', value: document.getElementById('startDate').value });
+  settingsStore.put({ key: 'startHour', value: document.getElementById('startHour').value });
+  settingsStore.put({ key: 'startMinute', value: document.getElementById('startMinute').value });
+  settingsStore.put({ key: 'startPeriod', value: document.getElementById('startPeriod').value });
+  settingsStore.put({ key: 'defaultSeconds', value: defaultSecIn.value });
+  settingsStore.put({ key: 'loopQueue', value: loopCheckbox.checked });
+  settingsStore.put({ key: 'countdownEndText', value: countdownEndTextIn.value });
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function loadQueueFromDB() {
+  try {
+    const db = await openDB();
+
+    // Load settings
+    const settingsTx = db.transaction(SETTINGS_STORE, 'readonly');
+    const settingsStore = settingsTx.objectStore(SETTINGS_STORE);
+    const allSettings = await new Promise((resolve, reject) => {
+      const req = settingsStore.getAll();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+
+    const settings = {};
+    allSettings.forEach(s => settings[s.key] = s.value);
+
+    if (settings.headerText !== undefined) headerTextIn.value = settings.headerText;
+    if (settings.startDate !== undefined) document.getElementById('startDate').value = settings.startDate;
+    if (settings.startHour !== undefined) document.getElementById('startHour').value = settings.startHour;
+    if (settings.startMinute !== undefined) document.getElementById('startMinute').value = settings.startMinute;
+    if (settings.startPeriod !== undefined) document.getElementById('startPeriod').value = settings.startPeriod;
+    if (settings.defaultSeconds !== undefined) defaultSecIn.value = settings.defaultSeconds;
+    if (settings.loopQueue !== undefined) loopCheckbox.checked = settings.loopQueue;
+    if (settings.countdownEndText !== undefined) countdownEndTextIn.value = settings.countdownEndText;
+
+    // Load media
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const allItems = await new Promise((resolve, reject) => {
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+
+    // Sort by id to preserve order
+    allItems.sort((a, b) => a.id - b.id);
+
+    const durPending = [];
+    for (const entry of allItems) {
+      const file = new File([entry.blob], entry.name, { type: entry.mimeType });
+      const objectURL = URL.createObjectURL(file);
+      const item = {
+        file,
+        objectURL,
+        type: entry.type,
+        seconds: entry.seconds,
+        useFullLength: entry.useFullLength,
+        duration: null,
+      };
+      queue.push(item);
+      if (item.type === 'video') {
+        durPending.push(getVideoDuration(objectURL).then(dur => {
+          item.duration = dur;
+          if (item.seconds > dur) item.seconds = dur;
+        }));
+      }
+    }
+
+    if (durPending.length > 0) await Promise.all(durPending);
+    renderQueue();
+  } catch (e) {
+    console.warn('Could not restore from IndexedDB:', e);
+  }
+}
+
+async function clearDB() {
+  const db = await openDB();
+  const tx = db.transaction([STORE_NAME, SETTINGS_STORE], 'readwrite');
+  tx.objectStore(STORE_NAME).clear();
+  tx.objectStore(SETTINGS_STORE).clear();
+}
+
+// ── DOM refs ──
+const controlDeck   = document.getElementById('controlDeck');
+const presentation  = document.getElementById('presentation');
+const dropZone      = document.getElementById('dropZone');
+const fileInput     = document.getElementById('fileInput');
+const queueList     = document.getElementById('queueList');
+const emptyMsg      = document.getElementById('emptyMsg');
+const goBtn         = document.getElementById('goBtn');
+const clearBtn      = document.getElementById('clearBtn');
+const headerTextIn  = document.getElementById('headerText');
+const countdownPreview = document.getElementById('countdownPreview');
+const defaultSecIn  = document.getElementById('defaultSeconds');
+const countdownEndTextIn = document.getElementById('countdownEndText');
+const loopCheckbox  = document.getElementById('loopQueue');
+const liveHeaderText = document.getElementById('liveHeaderText');
+const liveCountdown  = document.getElementById('liveCountdown');
+const stage          = document.getElementById('stage');
+const exitBtn        = document.getElementById('exitBtn');
+
+// ── Helpers ──
+function isVideo(file) {
+  return file.type.startsWith('video/');
+}
+
+function parseTime() {
+  const hourVal = document.getElementById('startHour').value;
+  const minuteVal = document.getElementById('startMinute').value;
+  const period = document.getElementById('startPeriod').value;
+
+  if (!hourVal) return null;
+
+  let hours = parseInt(hourVal, 10);
+  const minutes = parseInt(minuteVal, 10);
+  if (period === 'AM' && hours === 12) hours = 0;
+  else if (period === 'PM' && hours !== 12) hours += 12;
+
+  const dateVal = document.getElementById('startDate').value;
+  let target;
+  if (dateVal) {
+    const [y, m, d] = dateVal.split('-').map(Number);
+    target = new Date(y, m - 1, d, hours, minutes, 0, 0);
+  } else {
+    const now = new Date();
+    target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0, 0);
+    if (target <= now) target.setDate(target.getDate() + 1);
+  }
+  return target;
+}
+
+function formatCountdown(ms) {
+  if (ms <= 0) return null;
+  const totalSec = Math.ceil(ms / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const h  = Math.floor((totalSec % 86400) / 3600);
+  const m  = Math.floor((totalSec % 3600) / 60);
+  const s  = totalSec % 60;
+  const hms = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  if (days > 0) return `${days}d ${hms}`;
+  return hms;
+}
+
+// ── Rendering the queue list ──
+function renderQueue() {
+  queueList.innerHTML = '';
+  emptyMsg.style.display = queue.length ? 'none' : 'block';
+  goBtn.disabled = queue.length === 0;
+
+  queue.forEach((item, i) => {
+    const li = document.createElement('li');
+    li.draggable = true;
+    li.dataset.index = i;
+
+    // Thumbnail
+    if (item.type === 'image') {
+      const img = document.createElement('img');
+      img.className = 'thumb';
+      img.src = item.objectURL;
+      li.appendChild(img);
+    } else {
+      const vid = document.createElement('video');
+      vid.className = 'thumb';
+      vid.src = item.objectURL;
+      vid.muted = true;
+      vid.preload = 'metadata';
+      li.appendChild(vid);
+    }
+
+    // File name
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'file-name';
+    nameSpan.textContent = item.file.name;
+    li.appendChild(nameSpan);
+
+    // Type badge
+    const badge = document.createElement('span');
+    badge.className = 'file-type ' + item.type;
+    badge.textContent = item.type;
+    li.appendChild(badge);
+
+    if (item.type === 'video') {
+      // Videos: just show their duration, no editing
+      const durLabel = document.createElement('span');
+      durLabel.className = 'timer-label';
+      durLabel.textContent = item.duration ? item.duration + 's' : '...';
+      li.appendChild(durLabel);
+    } else {
+      // Images: editable timer
+      const timerLabel = document.createElement('span');
+      timerLabel.className = 'timer-label';
+      timerLabel.textContent = 'sec:';
+      li.appendChild(timerLabel);
+
+      const timerInput = document.createElement('input');
+      timerInput.className = 'timer-input';
+      timerInput.type = 'number';
+      timerInput.min = 1;
+      timerInput.max = 600;
+      timerInput.value = item.seconds;
+      timerInput.addEventListener('change', () => {
+        item.seconds = Math.max(1, parseInt(timerInput.value, 10) || 10);
+        timerInput.value = item.seconds;
+        saveQueueToDB();
+      });
+      li.appendChild(timerInput);
+    }
+
+    // Remove
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = '\u00d7';
+    removeBtn.addEventListener('click', () => {
+      URL.revokeObjectURL(item.objectURL);
+      queue.splice(i, 1);
+      renderQueue();
+      saveQueueToDB();
+    });
+    li.appendChild(removeBtn);
+
+    // Drag-and-drop reorder
+    li.addEventListener('dragstart', (e) => {
+      li.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', i);
+    });
+    li.addEventListener('dragend', () => li.classList.remove('dragging'));
+    li.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    });
+    li.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const to = i;
+      if (from !== to) {
+        const [moved] = queue.splice(from, 1);
+        queue.splice(to, 0, moved);
+        renderQueue();
+        saveQueueToDB();
+      }
+    });
+
+    queueList.appendChild(li);
+  });
+}
+
+// ── Adding files ──
+function addFiles(files) {
+  const defaultSec = parseInt(defaultSecIn.value, 10) || 10;
+  const pending = [];
+  for (const file of files) {
+    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) continue;
+    const type = file.type.startsWith('video/') ? 'video' : 'image';
+    const objectURL = URL.createObjectURL(file);
+    const item = {
+      file,
+      objectURL,
+      type,
+      seconds: defaultSec,
+      useFullLength: type === 'video',
+      duration: null,
+    };
+    queue.push(item);
+    if (type === 'video') {
+      pending.push(getVideoDuration(objectURL).then(dur => {
+        item.duration = dur;
+        item.seconds = dur;
+        item.useFullLength = true;
+      }));
+    }
+  }
+  if (pending.length > 0) {
+    Promise.all(pending).then(() => { renderQueue(); saveQueueToDB(); });
+  } else {
+    renderQueue();
+    saveQueueToDB();
+  }
+}
+
+function getVideoDuration(url) {
+  return new Promise(resolve => {
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.src = url;
+    v.addEventListener('loadedmetadata', () => {
+      resolve(Math.floor(v.duration));
+    });
+    v.addEventListener('error', () => resolve(10));
+  });
+}
+
+// Drop zone events
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  addFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => {
+  addFiles(fileInput.files);
+  fileInput.value = '';
+});
+
+// Clear all
+clearBtn.addEventListener('click', () => {
+  if (queue.length === 0) return;
+  if (!confirm('Are you sure you want to clear all slides?')) return;
+  queue.forEach(item => URL.revokeObjectURL(item.objectURL));
+  queue.length = 0;
+  renderQueue();
+  clearDB();
+});
+
+// ── Presentation ──
+function startPresentation() {
+  if (queue.length === 0) return;
+  running = true;
+  currentIndex = 0;
+  controlDeck.style.display = 'none';
+  presentation.style.display = 'block';
+
+  // Countdown is already running from page load — no need to restart
+
+  // Enter fullscreen
+  if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+
+  // Begin slideshow
+  showItem(currentIndex);
+}
+
+function stopPresentation() {
+  running = false;
+  clearTimeout(slideshowTimeout);
+
+  // Remove any media from stage
+  stage.innerHTML = '';
+
+  presentation.style.display = 'none';
+  controlDeck.style.display = 'block';
+
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+function fitEndText() {
+  const el = liveCountdown;
+  const maxW = window.innerWidth * 0.9;
+  const maxH = window.innerHeight * 0.8;
+  let size = window.innerWidth * 0.12; // start at 12vw equivalent
+  el.style.fontSize = size + 'px';
+  while (size > 16 && (el.scrollWidth > maxW || el.scrollHeight > maxH)) {
+    size -= 2;
+    el.style.fontSize = size + 'px';
+  }
+}
+
+function startCountdown() {
+  function tick() {
+    const target = parseTime();
+    const customText = headerTextIn.value.trim();
+
+    if (!target) {
+      liveHeaderText.textContent = customText || '';
+      liveCountdown.textContent = '';
+      liveCountdown.classList.remove('done');
+      liveCountdown.style.fontSize = '';
+      document.getElementById('headerOverlay').classList.remove('takeover');
+      stage.style.display = '';
+      countdownPreview.textContent = 'Set a date & time above to see the countdown';
+      return;
+    }
+    const diff = target - Date.now();
+    if (diff <= 0) {
+      liveHeaderText.textContent = '';
+      const endText = countdownEndTextIn.value.trim() || 'Bidding is LIVE!';
+      liveCountdown.textContent = endText;
+      liveCountdown.classList.add('done');
+      countdownPreview.textContent = endText;
+      // Take over the full screen — hide slides, expand header
+      document.getElementById('headerOverlay').classList.add('takeover');
+      stage.style.display = 'none';
+      // Auto-shrink text to fit screen
+      fitEndText();
+      return;
+    }
+    const formatted = formatCountdown(diff);
+    liveCountdown.classList.remove('done');
+    liveCountdown.style.fontSize = '';
+    document.getElementById('headerOverlay').classList.remove('takeover');
+    stage.style.display = '';
+    liveHeaderText.textContent = customText || '';
+    liveCountdown.textContent = formatted;
+    countdownPreview.textContent = (customText ? customText + '  ' : '') + formatted;
+  }
+  tick();
+  countdownInterval = setInterval(tick, 500);
+}
+
+function showItem(index) {
+  if (!running) return;
+  if (index >= queue.length) {
+    if (loopCheckbox.checked) {
+      currentIndex = 0;
+      showItem(0);
+    } else {
+      // Stay on last item
+      return;
+    }
+    return;
+  }
+
+  const item = queue[index];
+
+  // Fade out existing content
+  const existing = stage.querySelector('.visible');
+  if (existing) {
+    existing.classList.remove('visible');
+    // Wait for fade-out before swapping
+    setTimeout(() => showItemActual(item, index), 800);
+  } else {
+    showItemActual(item, index);
+  }
+}
+
+function showItemActual(item, index) {
+  if (!running) return;
+  stage.innerHTML = '';
+
+  if (item.type === 'image') {
+    const img = document.createElement('img');
+    img.src = item.objectURL;
+    stage.appendChild(img);
+    // Trigger fade-in on next frame
+    requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add('visible')));
+
+    slideshowTimeout = setTimeout(() => {
+      currentIndex = index + 1;
+      showItem(currentIndex);
+    }, item.seconds * 1000 + 100); // +100 to account for fade
+  } else {
+    // Video
+    const vid = document.createElement('video');
+    vid.src = item.objectURL;
+    vid.autoplay = true;
+    vid.playsInline = true;
+    // Videos play with audio
+    stage.appendChild(vid);
+    requestAnimationFrame(() => requestAnimationFrame(() => vid.classList.add('visible')));
+
+    if (item.useFullLength) {
+      vid.addEventListener('ended', () => {
+        currentIndex = index + 1;
+        showItem(currentIndex);
+      });
+    } else {
+      slideshowTimeout = setTimeout(() => {
+        vid.pause();
+        currentIndex = index + 1;
+        showItem(currentIndex);
+      }, item.seconds * 1000 + 100);
+    }
+  }
+}
+
+// ── Controls ──
+goBtn.addEventListener('click', startPresentation);
+exitBtn.addEventListener('click', stopPresentation);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && running) stopPresentation();
+});
+
+// Init — default the date picker to today
+const today = new Date();
+document.getElementById('startDate').value =
+  today.getFullYear() + '-' +
+  String(today.getMonth() + 1).padStart(2, '0') + '-' +
+  String(today.getDate()).padStart(2, '0');
+
+// Save settings when any control changes
+[headerTextIn, document.getElementById('startDate'), document.getElementById('startHour'),
+ document.getElementById('startMinute'), document.getElementById('startPeriod'),
+ defaultSecIn, loopCheckbox].forEach(el => {
+  el.addEventListener('change', () => saveQueueToDB());
+});
+headerTextIn.addEventListener('input', () => saveQueueToDB());
+countdownEndTextIn.addEventListener('input', () => saveQueueToDB());
+
+// Load saved state from IndexedDB, then start countdown
+loadQueueFromDB().then(() => {
+  startCountdown();
+});
+</script>
+</body>
+</html>
