@@ -413,7 +413,7 @@
 
 <script>
 // ── State ──
-const queue = []; // { file, objectURL, type:'image'|'video', seconds:number, useFullLength:boolean, duration:number|null }
+const queue = []; // { file, objectURL, type:'image'|'video', seconds:number, useFullLength:boolean, duration:number|null, muted:boolean }
 let countdownInterval = null;
 let slideshowTimeout = null;
 let currentIndex = 0;
@@ -463,6 +463,7 @@ async function saveQueueToDB() {
       type: item.type,
       seconds: item.seconds,
       useFullLength: item.useFullLength,
+      muted: item.muted,
     });
   }
 
@@ -529,6 +530,7 @@ async function loadQueueFromDB() {
         type: entry.type,
         seconds: entry.seconds,
         useFullLength: entry.useFullLength,
+        muted: entry.muted || false,
         duration: null,
       };
       queue.push(item);
@@ -659,6 +661,20 @@ function renderQueue() {
       durLabel.className = 'timer-label';
       durLabel.textContent = item.duration ? item.duration + 's' : '...';
       li.appendChild(durLabel);
+
+      // Mute toggle
+      const muteLabel = document.createElement('label');
+      muteLabel.className = 'use-full-length';
+      const muteCheck = document.createElement('input');
+      muteCheck.type = 'checkbox';
+      muteCheck.checked = item.muted;
+      muteCheck.addEventListener('change', () => {
+        item.muted = muteCheck.checked;
+        saveQueueToDB();
+      });
+      muteLabel.appendChild(muteCheck);
+      muteLabel.appendChild(document.createTextNode(' Mute audio'));
+      li.appendChild(muteLabel);
     } else {
       // Images: editable timer
       const timerLabel = document.createElement('span');
@@ -733,6 +749,7 @@ function addFiles(files) {
       type,
       seconds: defaultSec,
       useFullLength: type === 'video',
+      muted: false,
       duration: null,
     };
     queue.push(item);
@@ -922,7 +939,7 @@ function showItemActual(item, index) {
     vid.src = item.objectURL;
     vid.autoplay = true;
     vid.playsInline = true;
-    // Videos play with audio
+    vid.muted = item.muted;
     stage.appendChild(vid);
     requestAnimationFrame(() => requestAnimationFrame(() => vid.classList.add('visible')));
 
