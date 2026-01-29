@@ -25,3 +25,11 @@ Everything lives in one self-contained HTML file with inline CSS and JS:
 ## Running
 
 Open `auction.html` in a browser. No build or install step.
+
+## Deployment
+
+- **GitHub repo:** `forecastmatt/AuctionSlides`
+- **Live URL:** https://forecastmatt.github.io/AuctionSlides/auction.html
+- **Hosting:** GitHub Pages, deployed from `master` branch root
+- **Auth:** `gh` CLI is authenticated on this machine via system keyring (user: `forecastmatt`)
+- **To push updates:** `git add auction.html && git commit -m "description" && git push`

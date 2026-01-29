@@ -35,6 +35,74 @@
     font-size: 0.9rem;
   }
 
+  /* ── Tab Bar ── */
+  .tab-bar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #333;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .tab-bar .tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    background: #16213e;
+    border: 1px solid #333;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    color: #aaa;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+    position: relative;
+    user-select: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .tab-bar .tab:hover { background: #1e2d50; }
+  .tab-bar .tab.active {
+    background: #1a1a2e;
+    color: #e2b04a;
+    border-color: #e2b04a;
+    font-weight: 600;
+  }
+  .tab-bar .tab .tab-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 0.8rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .tab-bar .tab .tab-close:hover { background: rgba(192,57,43,0.3); color: #e74c3c; }
+  .tab-bar .tab-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: none;
+    border: 1px dashed #555;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    color: #888;
+    font-size: 1.2rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tab-bar .tab-add:hover { color: #e2b04a; border-color: #e2b04a; }
+
   /* ── Settings row ── */
   .settings-row {
     display: flex;
@@ -388,6 +456,46 @@
     transition: width 0.3s;
     width: 0%;
   }
+
+  /* ── Receive modal ── */
+  .receive-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .receive-modal {
+    background: #1a1a2e;
+    border: 1px solid #e2b04a;
+    border-radius: 12px;
+    padding: 28px 32px;
+    max-width: 420px;
+    width: 90%;
+    text-align: center;
+  }
+  .receive-modal h3 {
+    color: #e2b04a;
+    margin-bottom: 12px;
+    font-size: 1.1rem;
+  }
+  .receive-modal p {
+    color: #aaa;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+  }
+  .receive-modal .modal-btns {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .receive-modal .modal-btns .btn {
+    width: 100%;
+    padding: 10px 16px;
+    font-size: 0.95rem;
+  }
 </style>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
@@ -399,6 +507,9 @@
 <div id="controlDeck">
   <h1>Auction Slides</h1>
   <p class="subtitle">Upload media, set your times, and project.</p>
+
+  <!-- Tab Bar -->
+  <div class="tab-bar" id="tabBar"></div>
 
   <!-- Settings -->
   <div class="settings-row">
@@ -519,30 +630,119 @@
 </div>
 
 <script>
-// ── State ──
-const queue = []; // { file, objectURL, type:'image'|'video', seconds:number, useFullLength:boolean, duration:number|null, muted:boolean, hideHeader:boolean }
+// ── Multi-Slideshow State ──
+let slideshows = []; // [{ id, name, queue:[], settings:{} }]
+let activeSlideshowIndex = 0;
+let nextSlideshowId = 1;
+
 let countdownInterval = null;
 let slideshowTimeout = null;
 let currentIndex = 0;
 let running = false;
 let wakeLock = null;
 
+function defaultSettings() {
+  return {
+    headerText: 'Auction Starting In',
+    startDate: '',
+    startHour: '7',
+    startMinute: '00',
+    startPeriod: 'PM',
+    defaultSeconds: '10',
+    loopQueue: true,
+    countdownEndText: 'Bidding is LIVE!',
+  };
+}
+
+function createSlideshow(name) {
+  const s = {
+    id: nextSlideshowId++,
+    name: name,
+    queue: [],
+    settings: defaultSettings(),
+  };
+  slideshows.push(s);
+  return s;
+}
+
+function getActiveSlideshow() {
+  return slideshows[activeSlideshowIndex];
+}
+
+// Save current UI state into the active slideshow's settings
+function saveUIToActiveSlideshow() {
+  const s = getActiveSlideshow();
+  if (!s) return;
+  s.settings.headerText = headerTextIn.value;
+  s.settings.startDate = document.getElementById('startDate').value;
+  s.settings.startHour = document.getElementById('startHour').value;
+  s.settings.startMinute = document.getElementById('startMinute').value;
+  s.settings.startPeriod = document.getElementById('startPeriod').value;
+  s.settings.defaultSeconds = defaultSecIn.value;
+  s.settings.loopQueue = loopCheckbox.checked;
+  s.settings.countdownEndText = countdownEndTextIn.value;
+}
+
+// Load a slideshow's settings into the UI
+function loadSlideshowToUI(s) {
+  headerTextIn.value = s.settings.headerText;
+  document.getElementById('startDate').value = s.settings.startDate;
+  document.getElementById('startHour').value = s.settings.startHour;
+  document.getElementById('startMinute').value = s.settings.startMinute;
+  document.getElementById('startPeriod').value = s.settings.startPeriod;
+  defaultSecIn.value = s.settings.defaultSeconds;
+  loopCheckbox.checked = s.settings.loopQueue;
+  countdownEndTextIn.value = s.settings.countdownEndText;
+}
+
+function switchSlideshow(index) {
+  if (index === activeSlideshowIndex && slideshows.length > 0) return;
+  saveUIToActiveSlideshow();
+  activeSlideshowIndex = index;
+  const s = getActiveSlideshow();
+  loadSlideshowToUI(s);
+  renderQueue();
+  renderTabs();
+  saveToDB();
+}
+
+function deleteSlideshow(index) {
+  if (slideshows.length <= 1) { alert('Cannot delete the only slideshow.'); return; }
+  if (!confirm(`Delete "${slideshows[index].name}"? This cannot be undone.`)) return;
+  // Revoke object URLs
+  slideshows[index].queue.forEach(item => URL.revokeObjectURL(item.objectURL));
+  slideshows.splice(index, 1);
+  if (activeSlideshowIndex >= slideshows.length) activeSlideshowIndex = slideshows.length - 1;
+  else if (index < activeSlideshowIndex) activeSlideshowIndex--;
+  const s = getActiveSlideshow();
+  loadSlideshowToUI(s);
+  renderQueue();
+  renderTabs();
+  saveToDB();
+}
+
 // ── IndexedDB persistence ──
 const DB_NAME = 'AuctionSlidesDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'media';
 const SETTINGS_STORE = 'settings';
+const SLIDESHOWS_STORE = 'slideshows_meta';
 
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
+      // v1 stores
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
       }
       if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
         db.createObjectStore(SETTINGS_STORE, { keyPath: 'key' });
+      }
+      // v2: new store for multi-slideshow metadata
+      if (!db.objectStoreNames.contains(SLIDESHOWS_STORE)) {
+        db.createObjectStore(SLIDESHOWS_STORE, { keyPath: 'key' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -550,41 +750,50 @@ function openDB() {
   });
 }
 
-async function saveQueueToDB() {
+async function saveToDB() {
+  saveUIToActiveSlideshow();
   const db = await openDB();
-  const tx = db.transaction([STORE_NAME, SETTINGS_STORE], 'readwrite');
-  const store = tx.objectStore(STORE_NAME);
+  const tx = db.transaction([STORE_NAME, SETTINGS_STORE, SLIDESHOWS_STORE], 'readwrite');
+  const mediaStore = tx.objectStore(STORE_NAME);
   const settingsStore = tx.objectStore(SETTINGS_STORE);
+  const metaStore = tx.objectStore(SLIDESHOWS_STORE);
 
-  // Clear existing media entries
-  store.clear();
+  // Clear old stores
+  mediaStore.clear();
+  settingsStore.clear();
+  metaStore.clear();
 
-  // Save each queue item as a blob with metadata
-  for (let i = 0; i < queue.length; i++) {
-    const item = queue[i];
-    const blob = item.file;
-    store.put({
-      id: i,
-      blob: blob,
-      name: item.file.name,
-      mimeType: item.file.type,
-      type: item.type,
-      seconds: item.seconds,
-      useFullLength: item.useFullLength,
-      muted: item.muted,
-      hideHeader: item.hideHeader,
-    });
+  // Save slideshow metadata (without queue blobs)
+  const metaList = slideshows.map((s, idx) => ({
+    id: s.id,
+    name: s.name,
+    settings: s.settings,
+    queueLength: s.queue.length,
+  }));
+  metaStore.put({ key: 'slideshows', value: metaList });
+  metaStore.put({ key: 'activeSlideshowIndex', value: activeSlideshowIndex });
+  metaStore.put({ key: 'nextSlideshowId', value: nextSlideshowId });
+
+  // Save all media across all slideshows, keyed by slideshowId + index
+  let globalId = 0;
+  for (const s of slideshows) {
+    for (let i = 0; i < s.queue.length; i++) {
+      const item = s.queue[i];
+      mediaStore.put({
+        id: globalId++,
+        slideshowId: s.id,
+        queueIndex: i,
+        blob: item.file,
+        name: item.file.name,
+        mimeType: item.file.type,
+        type: item.type,
+        seconds: item.seconds,
+        useFullLength: item.useFullLength,
+        muted: item.muted,
+        hideHeader: item.hideHeader,
+      });
+    }
   }
-
-  // Save settings
-  settingsStore.put({ key: 'headerText', value: headerTextIn.value });
-  settingsStore.put({ key: 'startDate', value: document.getElementById('startDate').value });
-  settingsStore.put({ key: 'startHour', value: document.getElementById('startHour').value });
-  settingsStore.put({ key: 'startMinute', value: document.getElementById('startMinute').value });
-  settingsStore.put({ key: 'startPeriod', value: document.getElementById('startPeriod').value });
-  settingsStore.put({ key: 'defaultSeconds', value: defaultSecIn.value });
-  settingsStore.put({ key: 'loopQueue', value: loopCheckbox.checked });
-  settingsStore.put({ key: 'countdownEndText', value: countdownEndTextIn.value });
 
   return new Promise((resolve, reject) => {
     tx.oncomplete = resolve;
@@ -592,78 +801,149 @@ async function saveQueueToDB() {
   });
 }
 
-async function loadQueueFromDB() {
+async function loadFromDB() {
   try {
     const db = await openDB();
 
-    // Load settings
-    const settingsTx = db.transaction(SETTINGS_STORE, 'readonly');
-    const settingsStore = settingsTx.objectStore(SETTINGS_STORE);
-    const allSettings = await new Promise((resolve, reject) => {
-      const req = settingsStore.getAll();
+    // Check if we have new multi-slideshow data
+    const metaTx = db.transaction(SLIDESHOWS_STORE, 'readonly');
+    const metaStore = metaTx.objectStore(SLIDESHOWS_STORE);
+    const allMeta = await new Promise((resolve, reject) => {
+      const req = metaStore.getAll();
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
 
-    const settings = {};
-    allSettings.forEach(s => settings[s.key] = s.value);
+    const metaMap = {};
+    allMeta.forEach(m => metaMap[m.key] = m.value);
 
-    if (settings.headerText !== undefined) headerTextIn.value = settings.headerText;
-    if (settings.startDate !== undefined) document.getElementById('startDate').value = settings.startDate;
-    if (settings.startHour !== undefined) document.getElementById('startHour').value = settings.startHour;
-    if (settings.startMinute !== undefined) document.getElementById('startMinute').value = settings.startMinute;
-    if (settings.startPeriod !== undefined) document.getElementById('startPeriod').value = settings.startPeriod;
-    if (settings.defaultSeconds !== undefined) defaultSecIn.value = settings.defaultSeconds;
-    if (settings.loopQueue !== undefined) loopCheckbox.checked = settings.loopQueue;
-    if (settings.countdownEndText !== undefined) countdownEndTextIn.value = settings.countdownEndText;
+    if (metaMap.slideshows) {
+      // New format: multi-slideshow
+      const metaList = metaMap.slideshows;
+      activeSlideshowIndex = metaMap.activeSlideshowIndex || 0;
+      nextSlideshowId = metaMap.nextSlideshowId || 1;
 
-    // Load media
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const allItems = await new Promise((resolve, reject) => {
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
+      // Load all media
+      const mediaTx = db.transaction(STORE_NAME, 'readonly');
+      const mediaStore = mediaTx.objectStore(STORE_NAME);
+      const allMedia = await new Promise((resolve, reject) => {
+        const req = mediaStore.getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
 
-    // Sort by id to preserve order
-    allItems.sort((a, b) => a.id - b.id);
-
-    const durPending = [];
-    for (const entry of allItems) {
-      const file = new File([entry.blob], entry.name, { type: entry.mimeType });
-      const objectURL = URL.createObjectURL(file);
-      const item = {
-        file,
-        objectURL,
-        type: entry.type,
-        seconds: entry.seconds,
-        useFullLength: entry.useFullLength,
-        muted: entry.muted || false,
-        hideHeader: entry.hideHeader || false,
-        duration: null,
-      };
-      queue.push(item);
-      if (item.type === 'video') {
-        durPending.push(getVideoDuration(objectURL).then(dur => {
-          item.duration = dur;
-          if (item.seconds > dur) item.seconds = dur;
-        }));
+      // Group media by slideshowId
+      const mediaBySlideshow = {};
+      for (const entry of allMedia) {
+        if (!mediaBySlideshow[entry.slideshowId]) mediaBySlideshow[entry.slideshowId] = [];
+        mediaBySlideshow[entry.slideshowId].push(entry);
       }
+
+      slideshows = [];
+      const durPending = [];
+      for (const meta of metaList) {
+        const s = { id: meta.id, name: meta.name, queue: [], settings: meta.settings };
+        const entries = (mediaBySlideshow[meta.id] || []).sort((a, b) => a.queueIndex - b.queueIndex);
+        for (const entry of entries) {
+          const file = new File([entry.blob], entry.name, { type: entry.mimeType });
+          const objectURL = URL.createObjectURL(file);
+          const item = {
+            file, objectURL, type: entry.type,
+            seconds: entry.seconds, useFullLength: entry.useFullLength,
+            muted: entry.muted || false, hideHeader: entry.hideHeader || false,
+            duration: null,
+          };
+          s.queue.push(item);
+          if (item.type === 'video') {
+            durPending.push(getVideoDuration(objectURL).then(dur => {
+              item.duration = dur;
+              if (item.seconds > dur) item.seconds = dur;
+            }));
+          }
+        }
+        slideshows.push(s);
+      }
+      if (durPending.length > 0) await Promise.all(durPending);
+    } else {
+      // Migration from v1: check old settings/media stores
+      const settingsTx = db.transaction(SETTINGS_STORE, 'readonly');
+      const settingsStore = settingsTx.objectStore(SETTINGS_STORE);
+      const allSettings = await new Promise((resolve, reject) => {
+        const req = settingsStore.getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      const settings = {};
+      allSettings.forEach(s => settings[s.key] = s.value);
+
+      const mediaTx = db.transaction(STORE_NAME, 'readonly');
+      const mediaStore = mediaTx.objectStore(STORE_NAME);
+      const allItems = await new Promise((resolve, reject) => {
+        const req = mediaStore.getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      allItems.sort((a, b) => a.id - b.id);
+
+      const s = createSlideshow('Slideshow 1');
+      if (settings.headerText !== undefined) s.settings.headerText = settings.headerText;
+      if (settings.startDate !== undefined) s.settings.startDate = settings.startDate;
+      if (settings.startHour !== undefined) s.settings.startHour = settings.startHour;
+      if (settings.startMinute !== undefined) s.settings.startMinute = settings.startMinute;
+      if (settings.startPeriod !== undefined) s.settings.startPeriod = settings.startPeriod;
+      if (settings.defaultSeconds !== undefined) s.settings.defaultSeconds = settings.defaultSeconds;
+      if (settings.loopQueue !== undefined) s.settings.loopQueue = settings.loopQueue;
+      if (settings.countdownEndText !== undefined) s.settings.countdownEndText = settings.countdownEndText;
+
+      const durPending = [];
+      for (const entry of allItems) {
+        const file = new File([entry.blob], entry.name, { type: entry.mimeType });
+        const objectURL = URL.createObjectURL(file);
+        const item = {
+          file, objectURL, type: entry.type,
+          seconds: entry.seconds, useFullLength: entry.useFullLength,
+          muted: entry.muted || false, hideHeader: entry.hideHeader || false,
+          duration: null,
+        };
+        s.queue.push(item);
+        if (item.type === 'video') {
+          durPending.push(getVideoDuration(objectURL).then(dur => {
+            item.duration = dur;
+            if (item.seconds > dur) item.seconds = dur;
+          }));
+        }
+      }
+      if (durPending.length > 0) await Promise.all(durPending);
+      activeSlideshowIndex = 0;
     }
 
-    if (durPending.length > 0) await Promise.all(durPending);
+    // Ensure at least one slideshow exists
+    if (slideshows.length === 0) {
+      createSlideshow('Slideshow 1');
+      activeSlideshowIndex = 0;
+    }
+
+    // Load active slideshow into UI
+    loadSlideshowToUI(getActiveSlideshow());
     renderQueue();
+    renderTabs();
   } catch (e) {
     console.warn('Could not restore from IndexedDB:', e);
+    if (slideshows.length === 0) {
+      createSlideshow('Slideshow 1');
+      activeSlideshowIndex = 0;
+    }
+    renderQueue();
+    renderTabs();
   }
 }
 
 async function clearDB() {
   const db = await openDB();
-  const tx = db.transaction([STORE_NAME, SETTINGS_STORE], 'readwrite');
+  const tx = db.transaction([STORE_NAME, SETTINGS_STORE, SLIDESHOWS_STORE], 'readwrite');
   tx.objectStore(STORE_NAME).clear();
   tx.objectStore(SETTINGS_STORE).clear();
+  tx.objectStore(SLIDESHOWS_STORE).clear();
 }
 
 // ── DOM refs ──
@@ -684,6 +964,75 @@ const liveHeaderText = document.getElementById('liveHeaderText');
 const liveCountdown  = document.getElementById('liveCountdown');
 const stage          = document.getElementById('stage');
 const exitBtn        = document.getElementById('exitBtn');
+const tabBar         = document.getElementById('tabBar');
+
+// ── Tab Bar Rendering ──
+function renderTabs() {
+  tabBar.innerHTML = '';
+  slideshows.forEach((s, i) => {
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (i === activeSlideshowIndex ? ' active' : '');
+
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = s.name;
+    tab.appendChild(nameSpan);
+
+    tab.addEventListener('click', (e) => {
+      if (e.target.classList.contains('tab-close')) return;
+      switchSlideshow(i);
+    });
+
+    // Double-click to rename
+    tab.addEventListener('dblclick', (e) => {
+      if (e.target.classList.contains('tab-close')) return;
+      const newName = prompt('Rename slideshow:', s.name);
+      if (newName && newName.trim()) {
+        s.name = newName.trim();
+        renderTabs();
+        saveToDB();
+      }
+    });
+
+    // Close button (only if more than 1 slideshow)
+    if (slideshows.length > 1) {
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'tab-close';
+      closeBtn.textContent = '\u00d7';
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteSlideshow(i);
+      });
+      tab.appendChild(closeBtn);
+    }
+
+    tabBar.appendChild(tab);
+  });
+
+  // Add "+" button
+  const addBtn = document.createElement('button');
+  addBtn.className = 'tab-add';
+  addBtn.textContent = '+';
+  addBtn.title = 'Create new slideshow';
+  addBtn.addEventListener('click', () => {
+    const defaultName = 'Slideshow ' + (slideshows.length + 1);
+    const name = prompt('New slideshow name:', defaultName);
+    if (name === null) return;
+    saveUIToActiveSlideshow();
+    createSlideshow(name.trim() || defaultName);
+    activeSlideshowIndex = slideshows.length - 1;
+    const s = getActiveSlideshow();
+    // Set today's date as default for new slideshow
+    const today = new Date();
+    s.settings.startDate = today.getFullYear() + '-' +
+      String(today.getMonth() + 1).padStart(2, '0') + '-' +
+      String(today.getDate()).padStart(2, '0');
+    loadSlideshowToUI(s);
+    renderQueue();
+    renderTabs();
+    saveToDB();
+  });
+  tabBar.appendChild(addBtn);
+}
 
 // ── Helpers ──
 function isVideo(file) {
@@ -729,6 +1078,7 @@ function formatCountdown(ms) {
 
 // ── Rendering the queue list ──
 function renderQueue() {
+  const queue = getActiveSlideshow().queue;
   queueList.innerHTML = '';
   emptyMsg.style.display = queue.length ? 'none' : 'block';
   goBtn.disabled = queue.length === 0;
@@ -766,13 +1116,11 @@ function renderQueue() {
     li.appendChild(badge);
 
     if (item.type === 'video') {
-      // Videos: just show their duration, no editing
       const durLabel = document.createElement('span');
       durLabel.className = 'timer-label';
       durLabel.textContent = item.duration ? item.duration + 's' : '...';
       li.appendChild(durLabel);
 
-      // Mute toggle
       const muteLabel = document.createElement('label');
       muteLabel.className = 'use-full-length';
       const muteCheck = document.createElement('input');
@@ -780,13 +1128,12 @@ function renderQueue() {
       muteCheck.checked = item.muted;
       muteCheck.addEventListener('change', () => {
         item.muted = muteCheck.checked;
-        saveQueueToDB();
+        saveToDB();
       });
       muteLabel.appendChild(muteCheck);
       muteLabel.appendChild(document.createTextNode(' Mute audio'));
       li.appendChild(muteLabel);
     } else {
-      // Images: editable timer
       const timerLabel = document.createElement('span');
       timerLabel.className = 'timer-label';
       timerLabel.textContent = 'sec:';
@@ -801,7 +1148,7 @@ function renderQueue() {
       timerInput.addEventListener('change', () => {
         item.seconds = Math.max(1, parseInt(timerInput.value, 10) || 10);
         timerInput.value = item.seconds;
-        saveQueueToDB();
+        saveToDB();
       });
       li.appendChild(timerInput);
     }
@@ -814,7 +1161,7 @@ function renderQueue() {
     hideHeaderCheck.checked = item.hideHeader;
     hideHeaderCheck.addEventListener('change', () => {
       item.hideHeader = hideHeaderCheck.checked;
-      saveQueueToDB();
+      saveToDB();
     });
     hideHeaderLabel.appendChild(hideHeaderCheck);
     hideHeaderLabel.appendChild(document.createTextNode(' Hide countdown'));
@@ -829,7 +1176,7 @@ function renderQueue() {
       URL.revokeObjectURL(item.objectURL);
       queue.splice(i, 1);
       renderQueue();
-      saveQueueToDB();
+      saveToDB();
     });
     li.appendChild(removeBtn);
 
@@ -852,7 +1199,7 @@ function renderQueue() {
         const [moved] = queue.splice(from, 1);
         queue.splice(to, 0, moved);
         renderQueue();
-        saveQueueToDB();
+        saveToDB();
       }
     });
 
@@ -862,6 +1209,7 @@ function renderQueue() {
 
 // ── Adding files ──
 function addFiles(files) {
+  const queue = getActiveSlideshow().queue;
   const defaultSec = parseInt(defaultSecIn.value, 10) || 10;
   const pending = [];
   for (const file of files) {
@@ -888,10 +1236,10 @@ function addFiles(files) {
     }
   }
   if (pending.length > 0) {
-    Promise.all(pending).then(() => { renderQueue(); saveQueueToDB(); });
+    Promise.all(pending).then(() => { renderQueue(); saveToDB(); });
   } else {
     renderQueue();
-    saveQueueToDB();
+    saveToDB();
   }
 }
 
@@ -922,35 +1270,32 @@ fileInput.addEventListener('change', () => {
 
 // Clear all
 clearBtn.addEventListener('click', () => {
+  const queue = getActiveSlideshow().queue;
   if (queue.length === 0) return;
   if (!confirm('Are you sure you want to clear all slides?')) return;
   queue.forEach(item => URL.revokeObjectURL(item.objectURL));
   queue.length = 0;
   renderQueue();
-  clearDB();
+  saveToDB();
 });
 
 // ── Presentation ──
 function startPresentation() {
+  const queue = getActiveSlideshow().queue;
   if (queue.length === 0) return;
   running = true;
   currentIndex = 0;
   controlDeck.style.display = 'none';
   presentation.style.display = 'block';
 
-  // Countdown is already running from page load — no need to restart
-
-  // Keep screen awake
   if ('wakeLock' in navigator) {
     navigator.wakeLock.request('screen').then(lock => { wakeLock = lock; }).catch(() => {});
   }
 
-  // Enter fullscreen
   if (document.documentElement.requestFullscreen) {
     document.documentElement.requestFullscreen().catch(() => {});
   }
 
-  // Begin slideshow
   showItem(currentIndex);
 }
 
@@ -958,10 +1303,8 @@ function stopPresentation() {
   running = false;
   clearTimeout(slideshowTimeout);
 
-  // Release wake lock
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 
-  // Remove any media from stage
   stage.innerHTML = '';
 
   presentation.style.display = 'none';
@@ -976,7 +1319,7 @@ function fitEndText() {
   const el = liveCountdown;
   const maxW = window.innerWidth * 0.9;
   const maxH = window.innerHeight * 0.8;
-  let size = window.innerWidth * 0.12; // start at 12vw equivalent
+  let size = window.innerWidth * 0.12;
   el.style.fontSize = size + 'px';
   while (size > 16 && (el.scrollWidth > maxW || el.scrollHeight > maxH)) {
     size -= 2;
@@ -1006,10 +1349,8 @@ function startCountdown() {
       liveCountdown.textContent = endText;
       liveCountdown.classList.add('done');
       countdownPreview.textContent = endText;
-      // Take over the full screen — hide slides, expand header
       document.getElementById('headerOverlay').classList.add('takeover');
       stage.style.display = 'none';
-      // Auto-shrink text to fit screen
       fitEndText();
       return;
     }
@@ -1028,24 +1369,20 @@ function startCountdown() {
 
 function showItem(index) {
   if (!running) return;
+  const queue = getActiveSlideshow().queue;
   if (index >= queue.length) {
     if (loopCheckbox.checked) {
       currentIndex = 0;
       showItem(0);
-    } else {
-      // Stay on last item
-      return;
     }
     return;
   }
 
   const item = queue[index];
 
-  // Fade out existing content
   const existing = stage.querySelector('.visible');
   if (existing) {
     existing.classList.remove('visible');
-    // Wait for fade-out before swapping
     setTimeout(() => showItemActual(item, index), 800);
   } else {
     showItemActual(item, index);
@@ -1056,7 +1393,6 @@ function showItemActual(item, index) {
   if (!running) return;
   stage.innerHTML = '';
 
-  // Fade header in/out based on per-slide setting
   const overlay = document.getElementById('headerOverlay');
   overlay.style.opacity = item.hideHeader ? '0' : '1';
 
@@ -1064,15 +1400,13 @@ function showItemActual(item, index) {
     const img = document.createElement('img');
     img.src = item.objectURL;
     stage.appendChild(img);
-    // Trigger fade-in on next frame
     requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add('visible')));
 
     slideshowTimeout = setTimeout(() => {
       currentIndex = index + 1;
       showItem(currentIndex);
-    }, item.seconds * 1000 + 100); // +100 to account for fade
+    }, item.seconds * 1000 + 100);
   } else {
-    // Video
     const vid = document.createElement('video');
     vid.src = item.objectURL;
     vid.autoplay = true;
@@ -1114,15 +1448,105 @@ document.getElementById('startDate').value =
 [headerTextIn, document.getElementById('startDate'), document.getElementById('startHour'),
  document.getElementById('startMinute'), document.getElementById('startPeriod'),
  defaultSecIn, loopCheckbox].forEach(el => {
-  el.addEventListener('change', () => saveQueueToDB());
+  el.addEventListener('change', () => saveToDB());
 });
-headerTextIn.addEventListener('input', () => saveQueueToDB());
-countdownEndTextIn.addEventListener('input', () => saveQueueToDB());
+headerTextIn.addEventListener('input', () => saveToDB());
+countdownEndTextIn.addEventListener('input', () => saveToDB());
 
 // Load saved state from IndexedDB, then start countdown
-loadQueueFromDB().then(() => {
+loadFromDB().then(() => {
   startCountdown();
 });
+
+// ── Receive Modal ──
+function showReceiveModal(received, settingsData) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'receive-modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'receive-modal';
+    modal.innerHTML = `
+      <h3>Received ${received.length} Slides</h3>
+      <p>This slideshow already has slides. What would you like to do?</p>
+      <div class="modal-btns">
+        <button class="btn btn-primary" data-action="replace">Replace current slides</button>
+        <button class="btn btn-secondary" data-action="combine">Combine (append to current)</button>
+        <button class="btn btn-secondary" data-action="new">Create new slideshow</button>
+      </div>
+    `;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    modal.querySelectorAll('button[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.body.removeChild(overlay);
+        resolve(btn.dataset.action);
+      });
+    });
+  });
+}
+
+async function applyReceivedSlides(received, settingsData, action) {
+  const durPending = [];
+
+  function buildItems() {
+    const items = [];
+    received.sort((a, b) => a.index - b.index);
+    for (const m of received) {
+      const blob = new Blob([m.blob], { type: m.mimeType });
+      const file = new File([blob], m.name, { type: m.mimeType });
+      const objectURL = URL.createObjectURL(file);
+      const item = {
+        file, objectURL, type: m.mediaType,
+        seconds: m.seconds, useFullLength: m.useFullLength,
+        muted: m.muted || false, hideHeader: m.hideHeader || false,
+        duration: null,
+      };
+      items.push(item);
+      if (item.type === 'video') {
+        durPending.push(getVideoDuration(objectURL).then(dur => { item.duration = dur; }));
+      }
+    }
+    return items;
+  }
+
+  function applySettings(s) {
+    if (!settingsData) return;
+    s.settings.headerText = settingsData.headerText || '';
+    s.settings.startDate = settingsData.startDate || '';
+    s.settings.startHour = settingsData.startHour || '';
+    s.settings.startMinute = settingsData.startMinute || '';
+    s.settings.startPeriod = settingsData.startPeriod || '';
+    s.settings.defaultSeconds = settingsData.defaultSeconds || '10';
+    s.settings.loopQueue = settingsData.loopQueue !== false;
+    s.settings.countdownEndText = settingsData.countdownEndText || 'Bidding is LIVE!';
+  }
+
+  if (action === 'replace') {
+    const s = getActiveSlideshow();
+    s.queue.forEach(item => URL.revokeObjectURL(item.objectURL));
+    s.queue.length = 0;
+    s.queue.push(...buildItems());
+    applySettings(s);
+    loadSlideshowToUI(s);
+  } else if (action === 'combine') {
+    const s = getActiveSlideshow();
+    s.queue.push(...buildItems());
+  } else if (action === 'new') {
+    saveUIToActiveSlideshow();
+    const name = 'Received ' + (slideshows.length + 1);
+    const s = createSlideshow(name);
+    s.queue.push(...buildItems());
+    applySettings(s);
+    activeSlideshowIndex = slideshows.length - 1;
+    loadSlideshowToUI(s);
+    renderTabs();
+  }
+
+  if (durPending.length > 0) await Promise.all(durPending);
+  renderQueue();
+  saveToDB();
+}
 
 // ── WebRTC Slide Sharing (PeerJS) ──
 let sharePeer = null;
@@ -1140,6 +1564,7 @@ function cleanupPeer() {
 
 // Sender
 document.getElementById('shareBtn').addEventListener('click', () => {
+  const queue = getActiveSlideshow().queue;
   if (queue.length === 0) { alert('No slides to share.'); return; }
   const customCode = document.getElementById('shareCodeInput').value.trim().toUpperCase();
   if (!customCode) { alert('Enter a room code.'); return; }
@@ -1166,18 +1591,18 @@ document.getElementById('shareBtn').addEventListener('click', () => {
   sharePeer.on('connection', (conn) => {
     statusEl.textContent = 'Receiver connected. Sending...';
     conn.on('open', async () => {
-      // Send settings
+      const s = getActiveSlideshow();
       conn.send({
         type: 'settings',
         data: {
-          headerText: headerTextIn.value,
-          startDate: document.getElementById('startDate').value,
-          startHour: document.getElementById('startHour').value,
-          startMinute: document.getElementById('startMinute').value,
-          startPeriod: document.getElementById('startPeriod').value,
-          defaultSeconds: defaultSecIn.value,
-          loopQueue: loopCheckbox.checked,
-          countdownEndText: countdownEndTextIn.value,
+          headerText: s.settings.headerText,
+          startDate: s.settings.startDate,
+          startHour: s.settings.startHour,
+          startMinute: s.settings.startMinute,
+          startPeriod: s.settings.startPeriod,
+          defaultSeconds: s.settings.defaultSeconds,
+          loopQueue: s.settings.loopQueue,
+          countdownEndText: s.settings.countdownEndText,
         }
       });
 
@@ -1188,7 +1613,6 @@ document.getElementById('shareBtn').addEventListener('click', () => {
         statusEl.textContent = `Sending slide ${i + 1} of ${total}...`;
         progressBar.style.width = ((i + 1) / total * 100) + '%';
 
-        // Read file as ArrayBuffer
         const buf = await item.file.arrayBuffer();
         conn.send({
           type: 'media',
@@ -1204,7 +1628,6 @@ document.getElementById('shareBtn').addEventListener('click', () => {
           blob: buf,
         });
 
-        // Small delay to avoid overwhelming the data channel
         await new Promise(r => setTimeout(r, 100));
       }
 
@@ -1272,50 +1695,15 @@ function startReceive(code) {
       } else if (msg.type === 'done') {
         statusEl.textContent = 'Applying slides...';
 
-        // Apply settings
-        if (settingsData) {
-          headerTextIn.value = settingsData.headerText || '';
-          document.getElementById('startDate').value = settingsData.startDate || '';
-          document.getElementById('startHour').value = settingsData.startHour || '';
-          document.getElementById('startMinute').value = settingsData.startMinute || '';
-          document.getElementById('startPeriod').value = settingsData.startPeriod || '';
-          defaultSecIn.value = settingsData.defaultSeconds || '10';
-          loopCheckbox.checked = settingsData.loopQueue !== false;
-          countdownEndTextIn.value = settingsData.countdownEndText || 'Bidding is LIVE!';
+        const currentQueue = getActiveSlideshow().queue;
+        if (currentQueue.length > 0) {
+          // Show 3-option modal
+          const action = await showReceiveModal(received, settingsData);
+          await applyReceivedSlides(received, settingsData, action);
+        } else {
+          // Queue is empty, just replace directly
+          await applyReceivedSlides(received, settingsData, 'replace');
         }
-
-        // Clear existing queue
-        queue.forEach(item => URL.revokeObjectURL(item.objectURL));
-        queue.length = 0;
-
-        // Rebuild queue from received media
-        received.sort((a, b) => a.index - b.index);
-        const durPending = [];
-        for (const m of received) {
-          const blob = new Blob([m.blob], { type: m.mimeType });
-          const file = new File([blob], m.name, { type: m.mimeType });
-          const objectURL = URL.createObjectURL(file);
-          const item = {
-            file,
-            objectURL,
-            type: m.mediaType,
-            seconds: m.seconds,
-            useFullLength: m.useFullLength,
-            muted: m.muted || false,
-            hideHeader: m.hideHeader || false,
-            duration: null,
-          };
-          queue.push(item);
-          if (item.type === 'video') {
-            durPending.push(getVideoDuration(objectURL).then(dur => {
-              item.duration = dur;
-            }));
-          }
-        }
-
-        if (durPending.length > 0) await Promise.all(durPending);
-        renderQueue();
-        saveQueueToDB();
 
         statusEl.textContent = `Received ${received.length} slides. Ready!`;
         cleanupPeer();
