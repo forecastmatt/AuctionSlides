@@ -393,6 +393,23 @@
     color: #aaa;
   }
 
+  .btn-share {
+    background: #2ea043;
+    color: #fff;
+  }
+  .btn-share:hover { background: #278a37; }
+  .btn-share:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  #shareStatus {
+    text-align: center;
+    font-size: 0.85rem;
+    color: #aaa;
+    min-height: 1.2em;
+    margin-bottom: 8px;
+  }
+  #shareStatus.error { color: #e74c3c; }
+  #shareStatus.success { color: #27ae60; }
+
 </style>
 </head>
 <body>
@@ -477,8 +494,10 @@
   <p class="empty-msg" id="emptyMsg">No files yet. Drop some above.</p>
 
   <!-- Actions -->
+  <div id="shareStatus"></div>
   <div class="btn-row">
     <button class="btn btn-primary" id="goBtn" disabled>Go Fullscreen</button>
+    <button class="btn btn-share" id="shareBtn" style="display:none;">Share</button>
     <button class="btn btn-secondary" id="clearBtn">Clear All</button>
   </div>
 
@@ -1320,8 +1339,151 @@ document.getElementById('startDate').value =
 headerTextIn.addEventListener('input', () => saveToDB());
 countdownEndTextIn.addEventListener('input', () => saveToDB());
 
-// Load saved state from IndexedDB, then start countdown
-loadFromDB().then(() => {
+// ── Sharing ──
+const SHARE_SERVER = 'http://127.0.0.1:8787';
+const PAGES_BASE = 'https://forecastmatt.github.io/AuctionSlides';
+const shareBtn = document.getElementById('shareBtn');
+const shareStatus = document.getElementById('shareStatus');
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Detect if local share server is running (only shows Share on this computer)
+async function checkShareServer() {
+  try {
+    const resp = await fetch(SHARE_SERVER + '/ping', { signal: AbortSignal.timeout(1000) });
+    if (resp.ok) { shareBtn.style.display = ''; return true; }
+  } catch (e) {}
+  return false;
+}
+
+shareBtn.addEventListener('click', async () => {
+  saveUIToActiveSlideshow();
+  const s = getActiveSlideshow();
+  if (s.queue.length === 0) {
+    shareStatus.textContent = 'Add some slides first.';
+    shareStatus.className = 'error';
+    return;
+  }
+
+  shareBtn.disabled = true;
+  shareStatus.textContent = 'Packaging slides...';
+  shareStatus.className = '';
+
+  try {
+    const files = [];
+    for (let i = 0; i < s.queue.length; i++) {
+      const item = s.queue[i];
+      shareStatus.textContent = `Packaging ${i + 1}/${s.queue.length}: ${item.file.name}...`;
+      const safeName = i + '_' + item.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const data = await fileToBase64(item.file);
+      files.push({
+        filename: safeName,
+        originalName: item.file.name,
+        mimeType: item.file.type,
+        type: item.type,
+        seconds: item.seconds,
+        useFullLength: item.useFullLength,
+        muted: item.muted,
+        hideHeader: item.hideHeader,
+        data: data,
+      });
+    }
+
+    shareStatus.textContent = 'Publishing...';
+    const resp = await fetch(SHARE_SERVER + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: s.name,
+        settings: s.settings,
+        files: files,
+      }),
+    });
+    const result = await resp.json();
+    if (result.ok) {
+      const url = PAGES_BASE + '/auction.html';
+      shareStatus.textContent = 'Shared! Live in ~1 min at: ' + url;
+      shareStatus.className = 'success';
+      navigator.clipboard.writeText(url).catch(() => {});
+    } else {
+      throw new Error(result.error || 'Unknown error');
+    }
+  } catch (err) {
+    shareStatus.textContent = 'Error: ' + err.message;
+    shareStatus.className = 'error';
+  } finally {
+    shareBtn.disabled = false;
+  }
+});
+
+// ── Auto-load from GitHub Pages ──
+async function tryLoadFromGitHubPages() {
+  try {
+    const resp = await fetch(PAGES_BASE + '/projects/project.json', { cache: 'no-cache' });
+    if (!resp.ok) return;
+    const project = await resp.json();
+    if (!project.files || project.files.length === 0) return;
+
+    const localQueue = getActiveSlideshow().queue;
+    if (localQueue.length > 0) {
+      if (!confirm('A shared slideshow ("' + project.name + '") is available. Load it?')) return;
+    }
+
+    shareStatus.textContent = 'Loading shared slideshow...';
+    localQueue.forEach(item => URL.revokeObjectURL(item.objectURL));
+    localQueue.length = 0;
+
+    const s = getActiveSlideshow();
+    s.name = project.name || s.name;
+    Object.assign(s.settings, project.settings);
+    loadSlideshowToUI(s);
+
+    const durPending = [];
+    for (let i = 0; i < project.files.length; i++) {
+      const f = project.files[i];
+      shareStatus.textContent = `Loading ${i + 1}/${project.files.length}: ${f.originalName}...`;
+      const mediaResp = await fetch(PAGES_BASE + '/projects/media/' + f.filename, { cache: 'no-cache' });
+      if (!mediaResp.ok) continue;
+      const blob = await mediaResp.blob();
+      const file = new File([blob], f.originalName, { type: f.mimeType });
+      const objectURL = URL.createObjectURL(file);
+      const item = {
+        file, objectURL, type: f.type,
+        seconds: f.seconds, useFullLength: f.useFullLength,
+        muted: f.muted || false, hideHeader: f.hideHeader || false,
+        duration: null,
+      };
+      s.queue.push(item);
+      if (item.type === 'video') {
+        durPending.push(getVideoDuration(objectURL).then(dur => {
+          item.duration = dur;
+          if (item.seconds > dur) item.seconds = dur;
+        }));
+      }
+    }
+    if (durPending.length > 0) await Promise.all(durPending);
+
+    renderQueue();
+    renderTabs();
+    saveToDB();
+    shareStatus.textContent = 'Loaded shared slideshow.';
+    shareStatus.className = 'success';
+  } catch (e) {
+    console.warn('Could not load from GitHub Pages:', e);
+  }
+}
+
+// Load saved state, check for shared slides, start countdown
+loadFromDB().then(async () => {
+  checkShareServer();
+  await tryLoadFromGitHubPages();
   startCountdown();
 });
 
