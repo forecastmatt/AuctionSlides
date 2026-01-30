@@ -1309,10 +1309,14 @@ function startPresentation() {
   document.addEventListener('visibilitychange', window._wakeLockVisHandler);
 
   if (document.documentElement.requestFullscreen) {
-    document.documentElement.requestFullscreen().catch(() => {});
+    document.documentElement.requestFullscreen().then(() => {
+      showItem(currentIndex);
+    }).catch(() => {
+      showItem(currentIndex);
+    });
+  } else {
+    showItem(currentIndex);
   }
-
-  showItem(currentIndex);
 }
 
 function stopPresentation() {
