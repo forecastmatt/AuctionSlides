@@ -1425,10 +1425,11 @@ function showItemActual(item, index) {
   if (item.type === 'image') {
     const img = document.createElement('img');
     img.src = item.objectURL;
-    stage.appendChild(img);
     img.decode().then(() => {
+      stage.appendChild(img);
       requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add('visible')));
     }).catch(() => {
+      stage.appendChild(img);
       requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add('visible')));
     });
 
