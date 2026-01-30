@@ -560,6 +560,12 @@ function saveUIToActiveSlideshow() {
 // Load a slideshow's settings into the UI
 function loadSlideshowToUI(s) {
   headerTextIn.value = s.settings.headerText;
+  if (!s.settings.startDate) {
+    const t = new Date();
+    s.settings.startDate = t.getFullYear() + '-' +
+      String(t.getMonth() + 1).padStart(2, '0') + '-' +
+      String(t.getDate()).padStart(2, '0');
+  }
   document.getElementById('startDate').value = s.settings.startDate;
   document.getElementById('startHour').value = s.settings.startHour;
   document.getElementById('startMinute').value = s.settings.startMinute;
