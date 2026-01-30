@@ -393,6 +393,77 @@
     color: #aaa;
   }
 
+  /* ── Sharing ── */
+  .share-box {
+    margin-top: 24px;
+    padding: 16px 20px;
+    background: #16213e;
+    border: 1px solid #333;
+    border-radius: 8px;
+  }
+  .share-box h3 {
+    font-size: 0.95rem;
+    color: #e2b04a;
+    margin-bottom: 12px;
+  }
+  .share-code-display {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #0f1a30;
+    border: 1px solid #2a3a5a;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+  }
+  .share-code-display .code {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #e2b04a;
+    font-family: monospace;
+    letter-spacing: 1px;
+  }
+  .share-code-display .label {
+    font-size: 0.8rem;
+    color: #888;
+  }
+  .join-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 10px;
+  }
+  .join-row input {
+    padding: 8px 12px;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: #0f3460;
+    color: #eee;
+    font-size: 1rem;
+    font-family: monospace;
+    width: 200px;
+  }
+  .btn-share {
+    background: #2ea043;
+    color: #fff;
+  }
+  .btn-share:hover { background: #278a37; }
+  .btn-share:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-join {
+    background: #2980b9;
+    color: #fff;
+  }
+  .btn-join:hover { background: #2471a3; }
+  #shareStatus {
+    font-size: 0.85rem;
+    margin-top: 8px;
+    min-height: 1.2em;
+    color: #888;
+  }
+  #shareStatus.error { color: #e74c3c; }
+  #shareStatus.success { color: #27ae60; }
+  #shareStatus.syncing { color: #e2b04a; }
+
 </style>
 </head>
 <body>
@@ -479,7 +550,34 @@
   <!-- Actions -->
   <div class="btn-row">
     <button class="btn btn-primary" id="goBtn" disabled>Go Fullscreen</button>
+    <button class="btn btn-share" id="shareBtn">Share</button>
     <button class="btn btn-secondary" id="clearBtn">Clear All</button>
+  </div>
+
+  <!-- Share / Join -->
+  <div class="share-box">
+    <h3>Wi-Fi Sharing</h3>
+
+    <!-- Share code (shown after clicking Share) -->
+    <div id="shareCodeArea" style="display:none;">
+      <div class="share-code-display">
+        <div>
+          <div class="label">Other devices on this Wi-Fi — open a browser and go to:</div>
+          <div class="code" id="shareCode"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Join field -->
+    <div class="join-row">
+      <input type="text" id="joinInput" placeholder="e.g. 192.168.1.182:8787">
+      <button class="btn btn-join" id="joinBtn">Join</button>
+    </div>
+    <div class="label" style="font-size:0.75rem; color:#666; margin-top:4px;">
+      Enter the code shown on the sharing device to load their slides.
+    </div>
+
+    <div id="shareStatus"></div>
   </div>
 
 </div>
@@ -1320,16 +1418,17 @@ document.getElementById('startDate').value =
 headerTextIn.addEventListener('input', () => saveToDB());
 countdownEndTextIn.addEventListener('input', () => saveToDB());
 
-// ── LAN Sync ──
-// Auto-detects if served from the sync server. If so, all changes
-// sync across every device on the same Wi-Fi. No setup needed.
-const SYNC_BASE = (location.protocol === 'http:' && location.port === '8787')
-  ? location.origin : null;
+// ── Wi-Fi Sharing ──
+const shareBtn     = document.getElementById('shareBtn');
+const shareCodeArea = document.getElementById('shareCodeArea');
+const shareCode    = document.getElementById('shareCode');
+const joinInput    = document.getElementById('joinInput');
+const joinBtn      = document.getElementById('joinBtn');
+const shareStatus  = document.getElementById('shareStatus');
 
-let lanSyncActive = false;
-let publishing = false;
-let lastSyncHash = '';
+let syncServerURL = null;  // set when sharing or joining
 let lastRemoteHash = '';
+let pollInterval = null;
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -1340,30 +1439,42 @@ function fileToBase64(file) {
   });
 }
 
-function getQueueHash() {
-  const s = getActiveSlideshow();
-  if (s.queue.length === 0) return '';
-  const parts = [s.name, JSON.stringify(s.settings)];
-  for (const item of s.queue) {
-    parts.push(item.file.name, item.file.size, item.type, item.seconds,
-      item.useFullLength, item.muted, item.hideHeader);
-  }
-  return parts.join('|');
+function setStatus(msg, type) {
+  shareStatus.textContent = msg;
+  shareStatus.className = type || '';
 }
 
-async function publishToLAN() {
-  if (!lanSyncActive || publishing) return;
-  const token = getQueueHash();
-  if (token === lastSyncHash) return;
-  if (!token) return;
+// ── SHARE: publish slides to the local server ──
+shareBtn.addEventListener('click', async () => {
+  saveUIToActiveSlideshow();
+  const s = getActiveSlideshow();
+  if (s.queue.length === 0) {
+    setStatus('Add some slides first.', 'error');
+    return;
+  }
 
-  publishing = true;
+  shareBtn.disabled = true;
+  setStatus('Starting share server check...', 'syncing');
+
+  // Try to reach the local LAN server
+  const serverURL = 'http://localhost:8787';
   try {
-    const s = getActiveSlideshow();
+    const ping = await fetch(serverURL + '/api/hash', { signal: AbortSignal.timeout(2000) });
+    if (!ping.ok) throw new Error('Server not responding');
+  } catch (e) {
+    setStatus('Share server not running. Start it with: python3 share-server.py', 'error');
+    shareBtn.disabled = false;
+    return;
+  }
+
+  setStatus('Uploading slides...', 'syncing');
+
+  try {
     const files = [];
     for (let i = 0; i < s.queue.length; i++) {
       const item = s.queue[i];
       const safeName = i + '_' + item.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      setStatus(`Uploading ${i + 1}/${s.queue.length}: ${item.file.name}...`, 'syncing');
       const data = await fileToBase64(item.file);
       files.push({
         filename: safeName, originalName: item.file.name,
@@ -1372,104 +1483,167 @@ async function publishToLAN() {
         muted: item.muted, hideHeader: item.hideHeader, data,
       });
     }
-    const resp = await fetch(SYNC_BASE + '/api/publish', {
+
+    const resp = await fetch(serverURL + '/api/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: s.name, settings: s.settings, files }),
     });
     const result = await resp.json();
-    if (result.ok) {
-      lastSyncHash = getQueueHash();
-      lastRemoteHash = result.hash;
-    }
-  } catch (e) {
-    console.warn('LAN sync publish failed:', e);
+    if (!result.ok) throw new Error(result.error || 'Upload failed');
+
+    // Get the LAN IP from the server
+    const infoResp = await fetch(serverURL + '/api/info');
+    const info = await infoResp.json();
+
+    syncServerURL = serverURL;
+    lastRemoteHash = result.hash;
+
+    // Show the join code
+    shareCode.textContent = info.ip + ':8787';
+    shareCodeArea.style.display = '';
+    setStatus('Sharing! Tell others to enter the code above.', 'success');
+
+    // Start polling for changes from other devices
+    startPolling(serverURL);
+  } catch (err) {
+    setStatus('Error: ' + err.message, 'error');
   } finally {
-    publishing = false;
+    shareBtn.disabled = false;
   }
-}
+});
 
-let publishDebounce = null;
-function schedulePublish() {
-  if (!lanSyncActive) return;
-  clearTimeout(publishDebounce);
-  publishDebounce = setTimeout(publishToLAN, 2000);
-}
+// ── JOIN: connect to another device's server ──
+joinBtn.addEventListener('click', async () => {
+  let addr = joinInput.value.trim();
+  if (!addr) {
+    setStatus('Enter the code from the sharing device.', 'error');
+    return;
+  }
+  if (!addr.startsWith('http')) addr = 'http://' + addr;
 
-async function pollLAN() {
-  if (!lanSyncActive || publishing) return;
+  joinBtn.disabled = true;
+  setStatus('Connecting...', 'syncing');
+
   try {
-    // Quick hash check first
-    const hashResp = await fetch(SYNC_BASE + '/api/hash', { cache: 'no-cache' });
-    if (!hashResp.ok) return;
-    const { hash } = await hashResp.json();
-    if (!hash || hash === lastRemoteHash) return;
+    const resp = await fetch(addr + '/api/project', { signal: AbortSignal.timeout(5000) });
+    if (!resp.ok) throw new Error('Could not connect');
+    const { project, hash } = await resp.json();
 
-    // Hash changed — fetch full project
-    const resp = await fetch(SYNC_BASE + '/api/project', { cache: 'no-cache' });
-    if (!resp.ok) return;
-    const { project } = await resp.json();
-    if (!project || !project.files || project.files.length === 0) return;
+    if (project && project.files && project.files.length > 0) {
+      // Load slides from the server
+      const localQueue = getActiveSlideshow().queue;
+      localQueue.forEach(item => URL.revokeObjectURL(item.objectURL));
+      localQueue.length = 0;
 
-    lastRemoteHash = hash;
+      const s = getActiveSlideshow();
+      s.name = project.name || s.name;
+      Object.assign(s.settings, project.settings);
+      loadSlideshowToUI(s);
 
-    const localQueue = getActiveSlideshow().queue;
-    localQueue.forEach(item => URL.revokeObjectURL(item.objectURL));
-    localQueue.length = 0;
-
-    const s = getActiveSlideshow();
-    s.name = project.name || s.name;
-    Object.assign(s.settings, project.settings);
-    loadSlideshowToUI(s);
-
-    const durPending = [];
-    for (const f of project.files) {
-      const mediaResp = await fetch(SYNC_BASE + '/api/media/' + f.filename, { cache: 'no-cache' });
-      if (!mediaResp.ok) continue;
-      const blob = await mediaResp.blob();
-      const file = new File([blob], f.originalName, { type: f.mimeType });
-      const objectURL = URL.createObjectURL(file);
-      const item = {
-        file, objectURL, type: f.type,
-        seconds: f.seconds, useFullLength: f.useFullLength,
-        muted: f.muted || false, hideHeader: f.hideHeader || false,
-        duration: null,
-      };
-      s.queue.push(item);
-      if (item.type === 'video') {
-        durPending.push(getVideoDuration(objectURL).then(dur => {
-          item.duration = dur;
-          if (item.seconds > dur) item.seconds = dur;
-        }));
+      const durPending = [];
+      for (let i = 0; i < project.files.length; i++) {
+        const f = project.files[i];
+        setStatus(`Loading ${i + 1}/${project.files.length}: ${f.originalName}...`, 'syncing');
+        const mediaResp = await fetch(addr + '/api/media/' + f.filename);
+        if (!mediaResp.ok) continue;
+        const blob = await mediaResp.blob();
+        const file = new File([blob], f.originalName, { type: f.mimeType });
+        const objectURL = URL.createObjectURL(file);
+        const item = {
+          file, objectURL, type: f.type,
+          seconds: f.seconds, useFullLength: f.useFullLength,
+          muted: f.muted || false, hideHeader: f.hideHeader || false,
+          duration: null,
+        };
+        s.queue.push(item);
+        if (item.type === 'video') {
+          durPending.push(getVideoDuration(objectURL).then(dur => {
+            item.duration = dur;
+            if (item.seconds > dur) item.seconds = dur;
+          }));
+        }
       }
+      if (durPending.length > 0) await Promise.all(durPending);
+
+      renderQueue();
+      renderTabs();
+      saveToDB();
     }
-    if (durPending.length > 0) await Promise.all(durPending);
 
-    renderQueue();
-    renderTabs();
-    lastSyncHash = getQueueHash();
-  } catch (e) {
-    console.warn('LAN poll failed:', e);
+    syncServerURL = addr;
+    lastRemoteHash = hash || '';
+    setStatus('Connected! Slides loaded. Staying in sync.', 'success');
+
+    // Start polling for updates
+    startPolling(addr);
+  } catch (err) {
+    setStatus('Could not connect. Check the code and make sure you\'re on the same Wi-Fi.', 'error');
+  } finally {
+    joinBtn.disabled = false;
   }
-}
+});
 
-// Hook saveToDB to auto-publish changes
-const _origSaveToDB = saveToDB;
-saveToDB = async function() {
-  await _origSaveToDB();
-  schedulePublish();
-};
+// ── Polling for updates ──
+function startPolling(serverURL) {
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(async () => {
+    try {
+      const resp = await fetch(serverURL + '/api/hash', { cache: 'no-cache', signal: AbortSignal.timeout(3000) });
+      if (!resp.ok) return;
+      const { hash } = await resp.json();
+      if (!hash || hash === lastRemoteHash) return;
+
+      // Something changed — fetch the full project
+      const projResp = await fetch(serverURL + '/api/project', { cache: 'no-cache' });
+      if (!projResp.ok) return;
+      const { project } = await projResp.json();
+      if (!project || !project.files) return;
+
+      lastRemoteHash = hash;
+
+      const localQueue = getActiveSlideshow().queue;
+      localQueue.forEach(item => URL.revokeObjectURL(item.objectURL));
+      localQueue.length = 0;
+
+      const s = getActiveSlideshow();
+      s.name = project.name || s.name;
+      Object.assign(s.settings, project.settings);
+      loadSlideshowToUI(s);
+
+      const durPending = [];
+      for (const f of project.files) {
+        const mediaResp = await fetch(serverURL + '/api/media/' + f.filename, { cache: 'no-cache' });
+        if (!mediaResp.ok) continue;
+        const blob = await mediaResp.blob();
+        const file = new File([blob], f.originalName, { type: f.mimeType });
+        const objectURL = URL.createObjectURL(file);
+        const item = {
+          file, objectURL, type: f.type,
+          seconds: f.seconds, useFullLength: f.useFullLength,
+          muted: f.muted || false, hideHeader: f.hideHeader || false,
+          duration: null,
+        };
+        s.queue.push(item);
+        if (item.type === 'video') {
+          durPending.push(getVideoDuration(objectURL).then(dur => {
+            item.duration = dur;
+            if (item.seconds > dur) item.seconds = dur;
+          }));
+        }
+      }
+      if (durPending.length > 0) await Promise.all(durPending);
+
+      renderQueue();
+      renderTabs();
+    } catch (e) {
+      // silent
+    }
+  }, 3000);
+}
 
 // ── Init ──
-loadFromDB().then(async () => {
-  if (SYNC_BASE) {
-    lanSyncActive = true;
-    // Load current state from server
-    await pollLAN();
-    lastSyncHash = getQueueHash();
-    // Poll for changes every 3 seconds
-    setInterval(pollLAN, 3000);
-  }
+loadFromDB().then(() => {
   startCountdown();
 });
 
