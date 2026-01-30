@@ -724,6 +724,8 @@ async function saveToDB() {
   metaStore.put({ key: 'slideshows', value: metaList });
   metaStore.put({ key: 'activeSlideshowIndex', value: activeSlideshowIndex });
   metaStore.put({ key: 'nextSlideshowId', value: nextSlideshowId });
+  if (cloudSlideshowId) metaStore.put({ key: 'cloudSlideshowId', value: cloudSlideshowId });
+  if (cloudLastSyncedMeta) metaStore.put({ key: 'cloudLastSyncedMeta', value: cloudLastSyncedMeta });
 
   // Save all media across all slideshows, keyed by slideshowId + index
   let globalId = 0;
@@ -767,6 +769,10 @@ async function loadFromDB() {
 
     const metaMap = {};
     allMeta.forEach(m => metaMap[m.key] = m.value);
+
+    // Restore cloud sync state
+    if (metaMap.cloudSlideshowId) cloudSlideshowId = metaMap.cloudSlideshowId;
+    if (metaMap.cloudLastSyncedMeta) cloudLastSyncedMeta = metaMap.cloudLastSyncedMeta;
 
     if (metaMap.slideshows) {
       // New format: multi-slideshow
@@ -1786,10 +1792,8 @@ function checkUrlForCloudId() {
   cloudLinkRow.style.display = '';
   cloudLoadBtn.style.display = '';
 
-  // Only auto-load from cloud on first visit (no local data);
-  // otherwise the user can click "Reload from Cloud" manually
-  const s = getActiveSlideshow();
-  if (s.queue.length === 0) loadFromCloud(id);
+  // Always check cloud for changes (like the reload button does)
+  loadFromCloud(id);
 }
 
 cloudSaveBtn.addEventListener('click', uploadToCloud);
