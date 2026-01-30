@@ -1765,7 +1765,20 @@ async function loadFromCloud(id) {
 function checkUrlForCloudId() {
   const params = new URLSearchParams(window.location.search);
   const id = params.get('id');
-  if (id) loadFromCloud(id);
+  if (!id) return;
+
+  // Always restore cloud ID and UI so the buttons work
+  cloudSlideshowId = id;
+  const url = window.location.origin + window.location.pathname + '?id=' + id;
+  cloudLink.textContent = url;
+  cloudLinkRow.style.display = '';
+  cloudLoadBtn.style.display = '';
+
+  // Set the sync snapshot from local data so the "already up to date" check works
+  const s = getActiveSlideshow();
+  if (s.queue.length > 0) cloudLastSyncedMeta = buildMetaSnapshot(s);
+
+  loadFromCloud(id);
 }
 
 cloudSaveBtn.addEventListener('click', uploadToCloud);
