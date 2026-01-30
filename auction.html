@@ -1766,9 +1766,18 @@ async function loadFromCloud(id) {
       const slide = metadata.slides[i];
       setCloudStatus('Downloading file ' + (i + 1) + '/' + metadata.slides.length + '...', 'syncing');
 
-      const fileResp = await fetch(WORKER_URL + '/' + slide.key);
-      if (!fileResp.ok) throw new Error('Failed to download ' + slide.filename);
-      const blob = await fileResp.blob();
+      let blob;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const fileResp = await fetch(WORKER_URL + '/' + slide.key);
+        if (!fileResp.ok) throw new Error('Failed to download ' + slide.filename);
+        try {
+          blob = await fileResp.blob();
+          break;
+        } catch (blobErr) {
+          if (attempt === 2) throw blobErr;
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
       const file = new File([blob], slide.filename, { type: slide.mimeType || blob.type });
       const objectURL = URL.createObjectURL(file);
 
