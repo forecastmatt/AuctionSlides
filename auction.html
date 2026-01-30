@@ -1348,34 +1348,27 @@ const PAGES_BASE = 'https://forecastmatt.github.io/AuctionSlides';
 const shareBtn = document.getElementById('shareBtn');
 const shareStatus = document.getElementById('shareStatus');
 
+// Auto-capture token from URL parameter (set by setup.sh)
+(function() {
+  const params = new URLSearchParams(location.search);
+  const t = params.get('_token');
+  if (t) {
+    localStorage.setItem('gh_token', t);
+    history.replaceState(null, '', location.pathname);
+  }
+})();
+
 async function getGhToken() {
   let token = localStorage.getItem('gh_token');
   if (token) {
-    // Verify it still works
     const resp = await fetch('https://api.github.com/user', {
       headers: { 'Authorization': 'token ' + token },
     });
     if (resp.ok) return token;
     localStorage.removeItem('gh_token');
   }
-  // First-time: open the token creation page and ask user to paste it
-  window.open('https://github.com/settings/tokens/new?scopes=repo&description=AuctionSlides', '_blank');
-  token = prompt(
-    'First-time setup (one time only):\n\n' +
-    'A GitHub page just opened. Click "Generate token" at the bottom,\n' +
-    'copy the token it shows you, and paste it here:'
-  );
-  if (!token || !token.trim()) return null;
-  token = token.trim();
-  const resp = await fetch('https://api.github.com/user', {
-    headers: { 'Authorization': 'token ' + token },
-  });
-  if (!resp.ok) {
-    alert('That token didn\'t work. Try clicking Share again.');
-    return null;
-  }
-  localStorage.setItem('gh_token', token);
-  return token;
+  alert('Not set up for sharing yet.\n\nRun this in a terminal:\n  ./setup.sh\n\nThat will connect your GitHub account (one time only).');
+  return null;
 }
 
 function setPublishStatus(msg, type) {
