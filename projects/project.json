@@ -1,0 +1,55 @@
+{
+  "name": "Slideshow 1",
+  "settings": {
+    "headerText": "biding starts in",
+    "startDate": "2026-01-29",
+    "startHour": "5",
+    "startMinute": "00",
+    "startPeriod": "PM",
+    "defaultSeconds": "10",
+    "loopQueue": true,
+    "countdownEndText": "auction starts anytime"
+  },
+  "files": [
+    {
+      "filename": "0_2024_obs_thunder_daily.mp4",
+      "originalName": "2024_obs_thunder_daily.mp4",
+      "mimeType": "video/mp4",
+      "type": "video",
+      "seconds": 2,
+      "useFullLength": true,
+      "muted": false,
+      "hideHeader": false
+    },
+    {
+      "filename": "1_Forecast_Jan_22_PM__2.jpg",
+      "originalName": "Forecast Jan 22 PM #2.jpg",
+      "mimeType": "image/jpeg",
+      "type": "image",
+      "seconds": 10,
+      "useFullLength": false,
+      "muted": false,
+      "hideHeader": true
+    },
+    {
+      "filename": "2_Gemini_Generated_Image_25o15325o15325o1.png",
+      "originalName": "Gemini_Generated_Image_25o15325o15325o1.png",
+      "mimeType": "image/png",
+      "type": "image",
+      "seconds": 10,
+      "useFullLength": false,
+      "muted": false,
+      "hideHeader": true
+    },
+    {
+      "filename": "3_Gemini_Generated_Image_c37j72c37j72c37j.png",
+      "originalName": "Gemini_Generated_Image_c37j72c37j72c37j.png",
+      "mimeType": "image/png",
+      "type": "image",
+      "seconds": 10,
+      "useFullLength": false,
+      "muted": false,
+      "hideHeader": false
+    }
+  ]
+}
