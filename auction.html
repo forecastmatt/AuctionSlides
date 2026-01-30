@@ -1332,14 +1332,15 @@ document.getElementById('startDate').value =
 headerTextIn.addEventListener('input', () => saveToDB());
 countdownEndTextIn.addEventListener('input', () => saveToDB());
 
-// ── Auto-Sync ──
-const SYNC_SERVER = 'http://127.0.0.1:8787';
+// ── Auto-Sync via GitHub API ──
+const GITHUB_OWNER = 'forecastmatt';
+const GITHUB_REPO = 'AuctionSlides';
+const GITHUB_BRANCH = 'master';
 const PAGES_BASE = 'https://forecastmatt.github.io/AuctionSlides';
 const syncStatus = document.getElementById('syncStatus');
-let isPublisher = false;
-let syncTimer = null;
 let publishing = false;
 let lastPublishedHash = '';
+let lastRemoteHash = '';
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -1350,9 +1351,9 @@ function fileToBase64(file) {
   });
 }
 
-// Quick hash of current state to detect changes
 function getQueueHash() {
   const s = getActiveSlideshow();
+  if (s.queue.length === 0) return '';
   const parts = [s.name, JSON.stringify(s.settings)];
   for (const item of s.queue) {
     parts.push(item.file.name, item.file.size, item.type, item.seconds,
@@ -1361,34 +1362,108 @@ function getQueueHash() {
   return parts.join('|');
 }
 
-async function checkSyncServer() {
-  try {
-    const resp = await fetch(SYNC_SERVER + '/ping', { signal: AbortSignal.timeout(1000) });
-    if (resp.ok) { isPublisher = true; return true; }
-  } catch (e) {}
-  return false;
+// ── Token management (one-time prompt, saved forever) ──
+function getToken() {
+  return localStorage.getItem('gh_token');
 }
 
-// Auto-publish current state to GitHub (publisher only)
+function ensureToken() {
+  let token = getToken();
+  if (token) return token;
+  // Open the token creation page and prompt
+  window.open('https://github.com/settings/tokens/new?scopes=repo&description=AuctionSlides', '_blank');
+  token = prompt(
+    'One-time setup to enable syncing:\n\n' +
+    '1. A GitHub page just opened — scroll down and click "Generate token"\n' +
+    '2. Copy the token it shows you\n' +
+    '3. Paste it here:'
+  );
+  if (!token || !token.trim()) return null;
+  token = token.trim();
+  localStorage.setItem('gh_token', token);
+  return token;
+}
+
+// ── GitHub API helpers ──
+async function ghApi(path, method, body) {
+  const token = getToken();
+  const headers = {
+    'Accept': 'application/vnd.github.v3+json',
+  };
+  if (token) headers['Authorization'] = 'token ' + token;
+  if (body) headers['Content-Type'] = 'application/json';
+  const resp = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/${path}`, {
+    method: method || 'GET',
+    headers,
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  return resp;
+}
+
+async function getFileSha(path) {
+  const resp = await ghApi('contents/' + path + '?ref=' + GITHUB_BRANCH);
+  if (resp.ok) return (await resp.json()).sha;
+  return null;
+}
+
+async function putFile(path, contentBase64, message) {
+  const sha = await getFileSha(path);
+  const body = { message, content: contentBase64, branch: GITHUB_BRANCH };
+  if (sha) body.sha = sha;
+  const resp = await ghApi('contents/' + path, 'PUT', body);
+  if (!resp.ok) {
+    const err = await resp.json();
+    throw new Error(err.message || resp.status);
+  }
+}
+
+async function deleteFile(path) {
+  const sha = await getFileSha(path);
+  if (!sha) return;
+  await ghApi('contents/' + path, 'DELETE', {
+    message: 'Remove ' + path, sha, branch: GITHUB_BRANCH
+  });
+}
+
+async function listDir(path) {
+  const resp = await ghApi('contents/' + path + '?ref=' + GITHUB_BRANCH);
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  return Array.isArray(data) ? data.map(f => f.name) : [];
+}
+
+// ── Auto-publish to GitHub (debounced) ──
 async function autoPublish() {
-  if (!isPublisher || publishing) return;
+  if (publishing) return;
   const hash = getQueueHash();
   if (hash === lastPublishedHash) return;
+  if (!hash) return; // empty queue
 
-  const s = getActiveSlideshow();
-  if (s.queue.length === 0) return;
+  const token = ensureToken();
+  if (!token) return;
 
   publishing = true;
   syncStatus.textContent = 'Syncing...';
   syncStatus.className = 'syncing';
 
   try {
-    const files = [];
+    const s = getActiveSlideshow();
+
+    // Delete old media files
+    const oldFiles = await listDir('projects/media');
+    for (const name of oldFiles) {
+      await deleteFile('projects/media/' + name);
+    }
+
+    // Upload new media files
+    const manifest = [];
     for (let i = 0; i < s.queue.length; i++) {
       const item = s.queue[i];
       const safeName = i + '_' + item.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const data = await fileToBase64(item.file);
-      files.push({
+      syncStatus.textContent = `Syncing ${i + 1}/${s.queue.length}...`;
+      const b64 = await fileToBase64(item.file);
+      await putFile('projects/media/' + safeName, b64, 'Add ' + safeName);
+      manifest.push({
         filename: safeName,
         originalName: item.file.name,
         mimeType: item.file.type,
@@ -1397,36 +1472,34 @@ async function autoPublish() {
         useFullLength: item.useFullLength,
         muted: item.muted,
         hideHeader: item.hideHeader,
-        data: data,
       });
     }
 
-    const resp = await fetch(SYNC_SERVER + '/publish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: s.name, settings: s.settings, files }),
-    });
-    const result = await resp.json();
-    if (result.ok) {
-      lastPublishedHash = hash;
-      syncStatus.textContent = 'Synced';
-      syncStatus.className = 'synced';
-    } else {
-      throw new Error(result.error);
-    }
+    // Upload project.json
+    const project = {
+      name: s.name,
+      settings: s.settings,
+      files: manifest,
+      updatedAt: Date.now(),
+    };
+    const projectB64 = btoa(unescape(encodeURIComponent(JSON.stringify(project, null, 2))));
+    await putFile('projects/project.json', projectB64, 'Update slideshow');
+
+    lastPublishedHash = hash;
+    lastRemoteHash = JSON.stringify(project);
+    syncStatus.textContent = 'Synced';
+    syncStatus.className = 'synced';
   } catch (err) {
-    syncStatus.textContent = 'Sync error';
+    syncStatus.textContent = 'Sync error — try again';
     syncStatus.className = 'error';
-    console.error('Auto-publish failed:', err);
+    console.error('Publish failed:', err);
   } finally {
     publishing = false;
   }
 }
 
-// Debounced publish — waits 3s after last change before syncing
 let publishDebounce = null;
 function schedulePublish() {
-  if (!isPublisher) return;
   clearTimeout(publishDebounce);
   publishDebounce = setTimeout(autoPublish, 3000);
 }
@@ -1435,12 +1508,10 @@ function schedulePublish() {
 const _originalSaveToDB = saveToDB;
 saveToDB = async function() {
   await _originalSaveToDB();
-  schedulePublish();
+  if (getToken()) schedulePublish();
 };
 
-// ── Auto-load from GitHub Pages (viewer devices) ──
-let lastRemoteHash = '';
-
+// ── Auto-load from GitHub Pages ──
 async function loadFromRemote() {
   try {
     const resp = await fetch(PAGES_BASE + '/projects/project.json', { cache: 'no-cache' });
@@ -1448,7 +1519,6 @@ async function loadFromRemote() {
     const project = await resp.json();
     if (!project.files || project.files.length === 0) return false;
 
-    // Build a hash to detect changes
     const remoteHash = JSON.stringify(project);
     if (remoteHash === lastRemoteHash) return false;
     lastRemoteHash = remoteHash;
@@ -1492,6 +1562,8 @@ async function loadFromRemote() {
 
     renderQueue();
     renderTabs();
+    await _originalSaveToDB();
+    lastPublishedHash = getQueueHash();
     syncStatus.textContent = 'Up to date';
     syncStatus.className = 'synced';
     return true;
@@ -1500,23 +1572,12 @@ async function loadFromRemote() {
   }
 }
 
-// Load saved state, detect role, start sync loop
+// ── Init: load local data, then sync from remote, poll for updates ──
 loadFromDB().then(async () => {
-  const hasServer = await checkSyncServer();
-
-  if (hasServer) {
-    // Publisher: auto-sync changes outward
-    syncStatus.textContent = 'Changes sync automatically';
-    syncStatus.className = 'synced';
-    // Also load remote once in case slides were added elsewhere
-    await loadFromRemote();
-    lastPublishedHash = getQueueHash();
-  } else {
-    // Viewer: load from remote and poll for updates
-    await loadFromRemote();
-    setInterval(loadFromRemote, 15000);
-  }
-
+  await loadFromRemote();
+  lastPublishedHash = getQueueHash();
+  // Poll for remote changes every 30 seconds
+  setInterval(loadFromRemote, 30000);
   startCountdown();
 });
 
