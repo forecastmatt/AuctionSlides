@@ -393,161 +393,22 @@
     color: #aaa;
   }
 
-  /* ── Share Section ── */
-  .share-section {
-    margin-top: 24px;
-    padding: 20px;
-    background: #16213e;
-    border: 1px solid #333;
-    border-radius: 8px;
-  }
-  .share-section h3 {
-    font-size: 1rem;
-    color: #e2b04a;
-    margin-bottom: 4px;
-  }
-  .share-section .share-subtitle {
-    font-size: 0.8rem;
-    color: #777;
-    margin-bottom: 16px;
-  }
-
-  /* Connection status */
-  .gh-status {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 14px;
-    padding: 10px 14px;
-    border-radius: 6px;
-    font-size: 0.9rem;
-  }
-  .gh-status.disconnected {
-    background: rgba(231, 76, 60, 0.1);
-    border: 1px solid #5a2020;
-    color: #e77;
-  }
-  .gh-status.connected {
-    background: rgba(39, 174, 96, 0.1);
-    border: 1px solid #1a5a30;
-    color: #6fcf97;
-  }
-  .gh-status .status-dot {
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .gh-status.disconnected .status-dot { background: #e74c3c; }
-  .gh-status.connected .status-dot { background: #27ae60; }
-
-  /* Setup steps */
-  .gh-setup {
-    background: #0f1a30;
-    border: 1px solid #2a3a5a;
-    border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 14px;
-  }
-  .gh-setup .step {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 12px;
-    font-size: 0.85rem;
-    color: #ccc;
-    line-height: 1.5;
-  }
-  .gh-setup .step:last-child { margin-bottom: 0; }
-  .gh-setup .step-num {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px; height: 24px;
-    border-radius: 50%;
-    background: #e2b04a;
-    color: #1a1a2e;
-    font-weight: 700;
-    font-size: 0.8rem;
-    flex-shrink: 0;
-  }
-  .gh-setup a {
-    color: #6bb5ff;
-    text-decoration: underline;
-  }
-  .gh-setup .token-row {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
-  }
-  .gh-setup input[type="password"] {
-    padding: 8px 12px;
-    border: 1px solid #444;
-    border-radius: 6px;
-    background: #16213e;
-    color: #eee;
-    font-size: 0.9rem;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .btn-publish {
+  .btn-share {
     background: #2ea043;
     color: #fff;
   }
-  .btn-publish:hover { background: #278a37; }
-  .btn-publish:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-share:hover { background: #278a37; }
+  .btn-share:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  .btn-connect {
-    background: #e2b04a;
-    color: #1a1a2e;
-  }
-  .btn-connect:hover { background: #d4a03a; }
-
-  .btn-disconnect {
-    background: none;
-    border: 1px solid #555;
-    color: #aaa;
-    padding: 6px 12px;
-    font-size: 0.8rem;
-  }
-  .btn-disconnect:hover { border-color: #e74c3c; color: #e74c3c; }
-
-  .share-url-box {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: #0f1a30;
-    border: 1px solid #2a3a5a;
-    border-radius: 6px;
-    padding: 10px 14px;
-    margin-top: 12px;
-    font-size: 0.85rem;
-  }
-  .share-url-box .url-text {
-    flex: 1;
-    color: #6bb5ff;
-    word-break: break-all;
-    user-select: all;
-  }
-  .share-url-box .copy-btn {
-    background: #333;
-    border: none;
-    color: #eee;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.8rem;
-    white-space: nowrap;
-  }
-  .share-url-box .copy-btn:hover { background: #444; }
-
-  #publishStatus {
+  #shareStatus {
+    text-align: center;
     font-size: 0.85rem;
     color: #aaa;
-    margin-top: 10px;
     min-height: 1.2em;
+    margin-bottom: 8px;
   }
-  #publishStatus.error { color: #e74c3c; }
-  #publishStatus.success { color: #27ae60; }
+  #shareStatus.error { color: #e74c3c; }
+  #shareStatus.success { color: #27ae60; }
 
 </style>
 </head>
@@ -633,54 +494,11 @@
   <p class="empty-msg" id="emptyMsg">No files yet. Drop some above.</p>
 
   <!-- Actions -->
+  <div id="shareStatus"></div>
   <div class="btn-row">
     <button class="btn btn-primary" id="goBtn" disabled>Go Fullscreen</button>
-    <button class="btn btn-publish btn" id="publishBtn">Publish to GitHub</button>
+    <button class="btn btn-share" id="shareBtn">Share</button>
     <button class="btn btn-secondary" id="clearBtn">Clear All</button>
-  </div>
-
-  <!-- Share Section -->
-  <div class="share-section">
-    <h3>Share This Slideshow</h3>
-    <p class="share-subtitle">Publish online so anyone with the link can view it on any device.</p>
-
-    <!-- Connection status bar -->
-    <div class="gh-status disconnected" id="ghStatusBar">
-      <span class="status-dot"></span>
-      <span id="ghStatusText">Not connected</span>
-      <button class="btn btn-disconnect" id="ghDisconnectBtn" style="display:none; margin-left:auto;">Disconnect</button>
-    </div>
-
-    <!-- Setup (shown when not connected) -->
-    <div class="gh-setup" id="ghSetup">
-      <div class="step">
-        <span class="step-num">1</span>
-        <span>Go to <a href="https://github.com/settings/tokens/new?scopes=repo&description=AuctionSlides" target="_blank" rel="noopener">GitHub &rarr; Create Token</a> (this link pre-fills everything)</span>
-      </div>
-      <div class="step">
-        <span class="step-num">2</span>
-        <span>Click <strong>"Generate token"</strong> at the bottom of that page, then copy the token it shows you</span>
-      </div>
-      <div class="step">
-        <span class="step-num">3</span>
-        <div style="width:100%">
-          <span>Paste it here and click Connect (you only need to do this once):</span>
-          <div class="token-row">
-            <input type="password" id="ghToken" placeholder="Paste your token here">
-            <button class="btn btn-connect" id="ghConnectBtn" style="padding:8px 16px;">Connect</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Share URL (shown after publishing) -->
-    <div class="share-url-box" id="shareUrlBox" style="display:none;">
-      <span style="color:#aaa;">Share link:</span>
-      <span class="url-text" id="shareUrlText"></span>
-      <button class="copy-btn" id="copyUrlBtn">Copy</button>
-    </div>
-
-    <div id="publishStatus"></div>
   </div>
 
 </div>
@@ -1527,81 +1345,42 @@ const GITHUB_REPO = 'AuctionSlides';
 const GITHUB_BRANCH = 'master';
 const PAGES_BASE = 'https://forecastmatt.github.io/AuctionSlides';
 
-const ghTokenInput = document.getElementById('ghToken');
-const ghConnectBtn = document.getElementById('ghConnectBtn');
-const ghDisconnectBtn = document.getElementById('ghDisconnectBtn');
-const ghStatusBar = document.getElementById('ghStatusBar');
-const ghStatusText = document.getElementById('ghStatusText');
-const ghSetup = document.getElementById('ghSetup');
-const publishBtn = document.getElementById('publishBtn');
-const publishStatus = document.getElementById('publishStatus');
-const shareUrlBox = document.getElementById('shareUrlBox');
-const shareUrlText = document.getElementById('shareUrlText');
-const copyUrlBtn = document.getElementById('copyUrlBtn');
+const shareBtn = document.getElementById('shareBtn');
+const shareStatus = document.getElementById('shareStatus');
 
-const SHARE_URL = PAGES_BASE + '/auction.html';
-
-function updateGhConnectionUI() {
-  const token = localStorage.getItem('gh_token');
-  const username = localStorage.getItem('gh_username');
-  if (token && username) {
-    ghStatusBar.className = 'gh-status connected';
-    ghStatusText.textContent = 'Connected as ' + username;
-    ghDisconnectBtn.style.display = '';
-    ghSetup.style.display = 'none';
-    publishBtn.style.display = '';
-  } else {
-    ghStatusBar.className = 'gh-status disconnected';
-    ghStatusText.textContent = 'Not connected — set up below to publish';
-    ghDisconnectBtn.style.display = 'none';
-    ghSetup.style.display = '';
-    publishBtn.style.display = 'none';
-  }
-}
-
-ghConnectBtn.addEventListener('click', async () => {
-  const token = ghTokenInput.value.trim();
-  if (!token) { setPublishStatus('Please paste a token first.', 'error'); return; }
-  ghConnectBtn.disabled = true;
-  ghConnectBtn.textContent = 'Checking...';
-  try {
+async function getGhToken() {
+  let token = localStorage.getItem('gh_token');
+  if (token) {
+    // Verify it still works
     const resp = await fetch('https://api.github.com/user', {
       headers: { 'Authorization': 'token ' + token },
     });
-    if (!resp.ok) throw new Error('Invalid token');
-    const user = await resp.json();
-    localStorage.setItem('gh_token', token);
-    localStorage.setItem('gh_username', user.login);
-    ghTokenInput.value = '';
-    setPublishStatus('Connected!', 'success');
-    updateGhConnectionUI();
-  } catch (e) {
-    setPublishStatus('Could not connect. Check that the token is correct and has "repo" scope.', 'error');
-  } finally {
-    ghConnectBtn.disabled = false;
-    ghConnectBtn.textContent = 'Connect';
+    if (resp.ok) return token;
+    localStorage.removeItem('gh_token');
   }
-});
-
-ghDisconnectBtn.addEventListener('click', () => {
-  localStorage.removeItem('gh_token');
-  localStorage.removeItem('gh_username');
-  setPublishStatus('');
-  updateGhConnectionUI();
-});
-
-copyUrlBtn.addEventListener('click', () => {
-  navigator.clipboard.writeText(SHARE_URL).then(() => {
-    copyUrlBtn.textContent = 'Copied!';
-    setTimeout(() => { copyUrlBtn.textContent = 'Copy'; }, 2000);
+  // First-time: open the token creation page and ask user to paste it
+  window.open('https://github.com/settings/tokens/new?scopes=repo&description=AuctionSlides', '_blank');
+  token = prompt(
+    'First-time setup (one time only):\n\n' +
+    'A GitHub page just opened. Click "Generate token" at the bottom,\n' +
+    'copy the token it shows you, and paste it here:'
+  );
+  if (!token || !token.trim()) return null;
+  token = token.trim();
+  const resp = await fetch('https://api.github.com/user', {
+    headers: { 'Authorization': 'token ' + token },
   });
-});
-
-updateGhConnectionUI();
+  if (!resp.ok) {
+    alert('That token didn\'t work. Try clicking Share again.');
+    return null;
+  }
+  localStorage.setItem('gh_token', token);
+  return token;
+}
 
 function setPublishStatus(msg, type) {
-  publishStatus.textContent = msg;
-  publishStatus.className = type || '';
+  shareStatus.textContent = msg;
+  shareStatus.className = type || '';
 }
 
 async function ghApiRequest(path, method, body, token) {
@@ -1676,21 +1455,22 @@ async function listProjectsMedia(token) {
   return data.map(f => f.name);
 }
 
-publishBtn.addEventListener('click', async () => {
-  const token = localStorage.getItem('gh_token');
-  if (!token) {
-    setPublishStatus('Enter and save a GitHub token first.', 'error');
-    return;
-  }
-
+shareBtn.addEventListener('click', async () => {
   saveUIToActiveSlideshow();
   const s = getActiveSlideshow();
   if (s.queue.length === 0) {
-    setPublishStatus('No slides to publish.', 'error');
+    setPublishStatus('Add some slides first.', 'error');
     return;
   }
 
-  publishBtn.disabled = true;
+  shareBtn.disabled = true;
+  setPublishStatus('Connecting...');
+  const token = await getGhToken();
+  if (!token) {
+    shareBtn.disabled = false;
+    setPublishStatus('', '');
+    return;
+  }
   try {
     // 1. Delete old media files
     setPublishStatus('Cleaning old published files...');
@@ -1730,14 +1510,14 @@ publishBtn.addEventListener('click', async () => {
     const projectB64 = btoa(unescape(encodeURIComponent(JSON.stringify(project, null, 2))));
     await putFile('projects/project.json', projectB64, token, 'Update project manifest');
 
-    shareUrlText.textContent = SHARE_URL;
-    shareUrlBox.style.display = '';
-    setPublishStatus('Published! The link below will be live in 1-2 minutes.', 'success');
+    const shareUrl = PAGES_BASE + '/auction.html';
+    setPublishStatus('Shared! Link copied. Give it a minute to go live: ' + shareUrl, 'success');
+    navigator.clipboard.writeText(shareUrl).catch(() => {});
   } catch (err) {
     setPublishStatus('Error: ' + err.message, 'error');
     console.error(err);
   } finally {
-    publishBtn.disabled = false;
+    shareBtn.disabled = false;
   }
 });
 
