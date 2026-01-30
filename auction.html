@@ -1572,11 +1572,25 @@ async function loadFromRemote() {
   }
 }
 
-// ── Init: load local data, then sync from remote, poll for updates ──
-loadFromDB().then(async () => {
+// ── One-time fresh start: clear old cached data ──
+async function freshStart() {
+  if (localStorage.getItem('auctionslides_cleared_v2')) return;
+  // Clear IndexedDB
+  await clearDB();
+  // Reset in-memory state
+  slideshows = [];
+  createSlideshow('Slideshow 1');
+  activeSlideshowIndex = 0;
+  loadSlideshowToUI(getActiveSlideshow());
+  renderQueue();
+  renderTabs();
+  localStorage.setItem('auctionslides_cleared_v2', '1');
+}
+
+// ── Init ──
+freshStart().then(() => loadFromDB()).then(async () => {
   await loadFromRemote();
   lastPublishedHash = getQueueHash();
-  // Poll for remote changes every 30 seconds
   setInterval(loadFromRemote, 30000);
   startCountdown();
 });
