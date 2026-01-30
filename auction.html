@@ -384,6 +384,62 @@
   }
   #presentation:hover #exitBtn { opacity: 1; }
 
+  /* ── Cloud Sync ── */
+  .cloud-section {
+    margin-bottom: 24px;
+    padding: 16px;
+    border: 1px solid #333;
+    border-radius: 8px;
+    background: #16213e;
+  }
+  .cloud-section h3 {
+    font-size: 0.95rem;
+    color: #e2b04a;
+    margin-bottom: 12px;
+  }
+  .cloud-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .cloud-row:last-child { margin-bottom: 0; }
+  .cloud-status {
+    font-size: 0.85rem;
+    color: #888;
+  }
+  .cloud-status.syncing { color: #e2b04a; }
+  .cloud-status.done { color: #27ae60; }
+  .cloud-status.error { color: #e74c3c; }
+  .cloud-link {
+    font-size: 0.85rem;
+    color: #5dade2;
+    word-break: break-all;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .btn-small {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+  }
+  .btn-cloud {
+    background: #2980b9;
+    color: #fff;
+  }
+  .btn-cloud:hover { background: #3498db; }
+  .btn-cloud:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-danger-small {
+    background: #c0392b;
+    color: #fff;
+  }
+  .btn-danger-small:hover { background: #e74c3c; }
+
   /* ── Loop toggle ── */
   .loop-toggle {
     display: flex;
@@ -484,6 +540,20 @@
     <button class="btn btn-secondary" id="importBtn">Import Slideshow</button>
   </div>
   <input type="file" id="importFileInput" accept=".json" style="display:none">
+
+  <!-- Cloud Sync -->
+  <div class="cloud-section">
+    <h3>Cloud Sync</h3>
+    <div class="cloud-row">
+      <button class="btn-small btn-cloud" id="cloudSaveBtn">Save to Cloud</button>
+      <button class="btn-small btn-cloud" id="cloudLoadBtn" style="display:none">Reload from Cloud</button>
+      <span class="cloud-status" id="cloudStatus">Ready</span>
+    </div>
+    <div class="cloud-row" id="cloudLinkRow" style="display:none">
+      <span class="cloud-link" id="cloudLink"></span>
+      <button class="btn-small btn-cloud" id="copyLinkBtn">Copy Link</button>
+    </div>
+  </div>
 
 </div>
 
@@ -1456,9 +1526,189 @@ importFileInput.addEventListener('change', async () => {
   }
 });
 
-// Load saved state from IndexedDB, then start countdown
+// ── Cloud Sync (Cloudflare R2) ──
+const WORKER_URL = 'https://auctionslides-api.forecastmatt.workers.dev';
+let cloudSlideshowId = null;
+
+const cloudSaveBtn = document.getElementById('cloudSaveBtn');
+const cloudLoadBtn = document.getElementById('cloudLoadBtn');
+const cloudStatus = document.getElementById('cloudStatus');
+const cloudLinkRow = document.getElementById('cloudLinkRow');
+const cloudLink = document.getElementById('cloudLink');
+const copyLinkBtn = document.getElementById('copyLinkBtn');
+
+function setCloudStatus(text, cls) {
+  cloudStatus.textContent = text;
+  cloudStatus.className = 'cloud-status' + (cls ? ' ' + cls : '');
+}
+
+function generateCloudId() {
+  return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+}
+
+async function uploadToCloud() {
+  saveUIToActiveSlideshow();
+  const s = getActiveSlideshow();
+
+  cloudSaveBtn.disabled = true;
+  setCloudStatus('Uploading...', 'syncing');
+
+  try {
+    if (!cloudSlideshowId) cloudSlideshowId = generateCloudId();
+    const prefix = cloudSlideshowId + '/';
+
+    // Delete old files for this slideshow
+    setCloudStatus('Cleaning old files...', 'syncing');
+    const listResp = await fetch(WORKER_URL + '/_list?prefix=' + encodeURIComponent(prefix));
+    const oldFiles = await listResp.json();
+    for (const f of oldFiles) {
+      await fetch(WORKER_URL + '/' + f.key, { method: 'DELETE' });
+    }
+
+    // Upload each media file
+    for (let i = 0; i < s.queue.length; i++) {
+      const item = s.queue[i];
+      const key = prefix + String(i).padStart(4, '0') + '_' + item.file.name;
+      setCloudStatus('Uploading file ' + (i + 1) + '/' + s.queue.length + '...', 'syncing');
+
+      const resp = await fetch(WORKER_URL + '/' + key, {
+        method: 'PUT',
+        headers: { 'Content-Type': item.file.type },
+        body: item.file,
+      });
+      if (!resp.ok) throw new Error('Upload failed for ' + item.file.name);
+    }
+
+    // Upload metadata as JSON
+    const metadata = {
+      name: s.name,
+      settings: s.settings,
+      slides: s.queue.map((item, i) => ({
+        key: prefix + String(i).padStart(4, '0') + '_' + item.file.name,
+        filename: item.file.name,
+        mimeType: item.file.type,
+        type: item.type,
+        seconds: item.seconds,
+        useFullLength: item.useFullLength,
+        muted: item.muted,
+        hideHeader: item.hideHeader,
+      })),
+    };
+    const metaResp = await fetch(WORKER_URL + '/' + prefix + '_meta.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(metadata),
+    });
+    if (!metaResp.ok) throw new Error('Failed to save metadata');
+
+    // Show link
+    const url = window.location.origin + window.location.pathname + '?id=' + cloudSlideshowId;
+    cloudLink.textContent = url;
+    cloudLinkRow.style.display = '';
+    cloudLoadBtn.style.display = '';
+    history.replaceState(null, '', '?id=' + cloudSlideshowId);
+
+    setCloudStatus('Saved to cloud', 'done');
+  } catch (e) {
+    setCloudStatus('Upload failed: ' + e.message, 'error');
+  } finally {
+    cloudSaveBtn.disabled = false;
+  }
+}
+
+async function loadFromCloud(id) {
+  setCloudStatus('Loading from cloud...', 'syncing');
+  cloudSaveBtn.disabled = true;
+
+  try {
+    const prefix = id + '/';
+
+    // Fetch metadata
+    const metaResp = await fetch(WORKER_URL + '/' + prefix + '_meta.json');
+    if (!metaResp.ok) {
+      setCloudStatus('Slideshow not found in cloud', 'error');
+      cloudSaveBtn.disabled = false;
+      return;
+    }
+    const metadata = await metaResp.json();
+    cloudSlideshowId = id;
+
+    const s = getActiveSlideshow();
+    s.queue.forEach(item => URL.revokeObjectURL(item.objectURL));
+    s.queue.length = 0;
+    s.name = metadata.name || s.name;
+    if (metadata.settings) Object.assign(s.settings, metadata.settings);
+
+    const durPending = [];
+    for (let i = 0; i < metadata.slides.length; i++) {
+      const slide = metadata.slides[i];
+      setCloudStatus('Downloading file ' + (i + 1) + '/' + metadata.slides.length + '...', 'syncing');
+
+      const fileResp = await fetch(WORKER_URL + '/' + slide.key);
+      if (!fileResp.ok) throw new Error('Failed to download ' + slide.filename);
+      const blob = await fileResp.blob();
+      const file = new File([blob], slide.filename, { type: slide.mimeType || blob.type });
+      const objectURL = URL.createObjectURL(file);
+
+      const item = {
+        file, objectURL,
+        type: slide.type,
+        seconds: slide.seconds,
+        useFullLength: slide.useFullLength,
+        muted: slide.muted || false,
+        hideHeader: slide.hideHeader || false,
+        duration: null,
+      };
+      s.queue.push(item);
+      if (item.type === 'video') {
+        durPending.push(getVideoDuration(objectURL).then(dur => {
+          item.duration = dur;
+          if (item.seconds > dur) item.seconds = dur;
+        }));
+      }
+    }
+    if (durPending.length > 0) await Promise.all(durPending);
+
+    loadSlideshowToUI(s);
+    renderQueue();
+    renderTabs();
+    saveToDB();
+
+    const url = window.location.origin + window.location.pathname + '?id=' + cloudSlideshowId;
+    cloudLink.textContent = url;
+    cloudLinkRow.style.display = '';
+    cloudLoadBtn.style.display = '';
+    history.replaceState(null, '', '?id=' + cloudSlideshowId);
+
+    setCloudStatus('Loaded from cloud', 'done');
+  } catch (e) {
+    setCloudStatus('Load failed: ' + e.message, 'error');
+  } finally {
+    cloudSaveBtn.disabled = false;
+  }
+}
+
+function checkUrlForCloudId() {
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('id');
+  if (id) loadFromCloud(id);
+}
+
+cloudSaveBtn.addEventListener('click', uploadToCloud);
+cloudLoadBtn.addEventListener('click', () => {
+  if (cloudSlideshowId) loadFromCloud(cloudSlideshowId);
+});
+copyLinkBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(cloudLink.textContent).then(() => {
+    copyLinkBtn.textContent = 'Copied!';
+    setTimeout(() => { copyLinkBtn.textContent = 'Copy Link'; }, 2000);
+  });
+});
+
+// Load saved state from IndexedDB, then start countdown and check for cloud ID
 loadFromDB().then(() => {
   startCountdown();
+  checkUrlForCloudId();
 });
 
 </script>
