@@ -1250,21 +1250,33 @@ function startPresentation() {
   controlDeck.style.display = 'none';
   presentation.style.display = 'block';
 
-  if ('wakeLock' in navigator) {
-    navigator.wakeLock.request('screen').then(lock => { wakeLock = lock; }).catch(() => {});
-  } else {
-    // Fallback: a tiny looping video keeps the OS awake in browsers without Wake Lock API
-    wakeLockVideo = document.createElement('video');
-    wakeLockVideo.setAttribute('playsinline', '');
-    wakeLockVideo.setAttribute('muted', '');
-    wakeLockVideo.muted = true;
-    wakeLockVideo.loop = true;
-    wakeLockVideo.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1';
-    // Minimal valid mp4 (black 1x1 pixel, ~1s) encoded as base64
-    wakeLockVideo.src = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAABltZGF0AAAA0wYF//+v3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NCByMzEwOCAzMWUxOWY5IC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyMyAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTAgcmVmPTEgZGVibG9jaz0wOjA6MCBhbmFseXNlPTA6MCBtZT1lc2Egc3VibWU9OSBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0wIG1lX3JhbmdlPTQgY2hyb21hX21lPTEgdHJlbGxpcz0wIDh4OGRjdD0wIGNxbT0wIGRlYWR6b25lPTIxLDExIGZhc3RfcHNraXA9MSBjaHJvbWFfcXBfb2Zmc2V0PTAgdGhyZWFkcz0xIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MCB3ZWlnaHRwPTAga2V5aW50PTI1MCBrZXlpbnRfbWluPTI1IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByYz1jcmYgbWJ0cmVlPTAgY3JmPTQwLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgcGJfcmF0aW89MS4zMCBhcT0wAAACaW1vb3YAAABsbXZoZAAAAAAAAAAAAAAAAAAAA+gAAAPoAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAGRdWR0YQAAAIltZXRhAAAAAAAAACFoZGxyAAAAAAAAAABtZGlyAAAAAAAAAAAAAAAAAAAAXGlsc3QAAAAkqW5hbQAAABxkYXRhAAAAAQAAAABCbGFuawAAACmpdG9vAAAAIWRhdGEAAAABAAAAACBMYXZmNjAuMTYuMTAwAAABk3RyYWsAAABcdGtoZAAAAA8AAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAABAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAR0ZHNhAAAAFHVybCAAAAABAAAAAm1kaWEAAAAgbWRoZAAAAAAAAAAAAAAAAAAAACgAAAAoVcQAAAAAAC1oZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAArm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAG5zdGJsAAAARnN0c2QAAAAAAAAAAQAAADZhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAQABAEgAAABIAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABhzdHRzAAAAAAAAAAABAAAAAgAAFAAAABRzdHNzAAAAAAAAAAEAAAABAAAAEHN0c3oAAAAAAAAAAAAAAAAAAAAQc3RjbwAAAAAAAAABAAAAMA==';
-    document.body.appendChild(wakeLockVideo);
-    wakeLockVideo.play().catch(() => {});
+  // Always use hidden video to keep screen awake (most reliable across browsers)
+  wakeLockVideo = document.createElement('video');
+  wakeLockVideo.setAttribute('playsinline', '');
+  wakeLockVideo.setAttribute('muted', '');
+  wakeLockVideo.muted = true;
+  wakeLockVideo.loop = true;
+  wakeLockVideo.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1';
+  // Minimal valid mp4 (black 1x1 pixel, ~1s) encoded as base64
+  wakeLockVideo.src = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAABltZGF0AAAA0wYF//+v3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NCByMzEwOCAzMWUxOWY5IC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyMyAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTAgcmVmPTEgZGVibG9jaz0wOjA6MCBhbmFseXNlPTA6MCBtZT1lc2Egc3VibWU9OSBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0wIG1lX3JhbmdlPTQgY2hyb21hX21lPTEgdHJlbGxpcz0wIDh4OGRjdD0wIGNxbT0wIGRlYWR6b25lPTIxLDExIGZhc3RfcHNraXA9MSBjaHJvbWFfcXBfb2Zmc2V0PTAgdGhyZWFkcz0xIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MCB3ZWlnaHRwPTAga2V5aW50PTI1MCBrZXlpbnRfbWluPTI1IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByYz1jcmYgbWJ0cmVlPTAgY3JmPTQwLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgcGJfcmF0aW89MS4zMCBhcT0wAAACaW1vb3YAAABsbXZoZAAAAAAAAAAAAAAAAAAAA+gAAAPoAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAGRdWR0YQAAAIltZXRhAAAAAAAAACFoZGxyAAAAAAAAAABtZGlyAAAAAAAAAAAAAAAAAAAAXGlsc3QAAAAkqW5hbQAAABxkYXRhAAAAAQAAAABCbGFuawAAACmpdG9vAAAAIWRhdGEAAAABAAAAACBMYXZmNjAuMTYuMTAwAAABk3RyYWsAAABcdGtoZAAAAA8AAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAABAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAR0ZHNhAAAAFHVybCAAAAABAAAAAm1kaWEAAAAgbWRoZAAAAAAAAAAAAAAAAAAAACgAAAAoVcQAAAAAAC1oZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAArm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAG5zdGJsAAAARnN0c2QAAAAAAAAAAQAAADZhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAQABAEgAAABIAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABhzdHRzAAAAAAAAAAABAAAAAgAAFAAAABRzdHNzAAAAAAAAAAEAAAABAAAAEHN0c3oAAAAAAAAAAAAAAAAAAAAQc3RjbwAAAAAAAAABAAAAMA==';
+  document.body.appendChild(wakeLockVideo);
+  wakeLockVideo.play().catch(() => {});
+
+  // Also use Wake Lock API if available (belt and suspenders)
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+    }
   }
+  requestWakeLock();
+  // Re-acquire wake lock when tab becomes visible again (browser releases it on visibility change)
+  document.addEventListener('visibilitychange', function wakeLockVisHandler() {
+    if (document.visibilityState === 'visible' && running) {
+      requestWakeLock();
+      if (wakeLockVideo && wakeLockVideo.paused) wakeLockVideo.play().catch(() => {});
+    }
+  });
+  window._wakeLockVisHandler = true;
 
   if (document.documentElement.requestFullscreen) {
     document.documentElement.requestFullscreen().catch(() => {});
