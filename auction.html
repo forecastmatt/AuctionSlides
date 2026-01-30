@@ -393,17 +393,6 @@
     color: #aaa;
   }
 
-  #syncStatus {
-    text-align: center;
-    font-size: 0.8rem;
-    color: #555;
-    min-height: 1em;
-    margin-bottom: 8px;
-  }
-  #syncStatus.syncing { color: #e2b04a; }
-  #syncStatus.synced { color: #27ae60; }
-  #syncStatus.error { color: #e74c3c; }
-
 </style>
 </head>
 <body>
@@ -488,7 +477,6 @@
   <p class="empty-msg" id="emptyMsg">No files yet. Drop some above.</p>
 
   <!-- Actions -->
-  <div id="syncStatus"></div>
   <div class="btn-row">
     <button class="btn btn-primary" id="goBtn" disabled>Go Fullscreen</button>
     <button class="btn btn-secondary" id="clearBtn">Clear All</button>
@@ -1332,14 +1320,15 @@ document.getElementById('startDate').value =
 headerTextIn.addEventListener('input', () => saveToDB());
 countdownEndTextIn.addEventListener('input', () => saveToDB());
 
-// ── Auto-Sync via GitHub API ──
-const GITHUB_OWNER = 'forecastmatt';
-const GITHUB_REPO = 'AuctionSlides';
-const GITHUB_BRANCH = 'master';
-const PAGES_BASE = 'https://forecastmatt.github.io/AuctionSlides';
-const syncStatus = document.getElementById('syncStatus');
+// ── LAN Sync ──
+// Auto-detects if served from the sync server. If so, all changes
+// sync across every device on the same Wi-Fi. No setup needed.
+const SYNC_BASE = (location.protocol === 'http:' && location.port === '8787')
+  ? location.origin : null;
+
+let lanSyncActive = false;
 let publishing = false;
-let lastPublishedHash = '';
+let lastSyncHash = '';
 let lastRemoteHash = '';
 
 function fileToBase64(file) {
@@ -1362,136 +1351,39 @@ function getQueueHash() {
   return parts.join('|');
 }
 
-// ── Token management (one-time prompt, saved forever) ──
-function getToken() {
-  return localStorage.getItem('gh_token');
-}
-
-function ensureToken() {
-  let token = getToken();
-  if (token) return token;
-  // Open the token creation page and prompt
-  window.open('https://github.com/settings/tokens/new?scopes=repo&description=AuctionSlides', '_blank');
-  token = prompt(
-    'One-time setup to enable syncing:\n\n' +
-    '1. A GitHub page just opened — scroll down and click "Generate token"\n' +
-    '2. Copy the token it shows you\n' +
-    '3. Paste it here:'
-  );
-  if (!token || !token.trim()) return null;
-  token = token.trim();
-  localStorage.setItem('gh_token', token);
-  return token;
-}
-
-// ── GitHub API helpers ──
-async function ghApi(path, method, body) {
-  const token = getToken();
-  const headers = {
-    'Accept': 'application/vnd.github.v3+json',
-  };
-  if (token) headers['Authorization'] = 'token ' + token;
-  if (body) headers['Content-Type'] = 'application/json';
-  const resp = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/${path}`, {
-    method: method || 'GET',
-    headers,
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  return resp;
-}
-
-async function getFileSha(path) {
-  const resp = await ghApi('contents/' + path + '?ref=' + GITHUB_BRANCH);
-  if (resp.ok) return (await resp.json()).sha;
-  return null;
-}
-
-async function putFile(path, contentBase64, message) {
-  const sha = await getFileSha(path);
-  const body = { message, content: contentBase64, branch: GITHUB_BRANCH };
-  if (sha) body.sha = sha;
-  const resp = await ghApi('contents/' + path, 'PUT', body);
-  if (!resp.ok) {
-    const err = await resp.json();
-    throw new Error(err.message || resp.status);
-  }
-}
-
-async function deleteFile(path) {
-  const sha = await getFileSha(path);
-  if (!sha) return;
-  await ghApi('contents/' + path, 'DELETE', {
-    message: 'Remove ' + path, sha, branch: GITHUB_BRANCH
-  });
-}
-
-async function listDir(path) {
-  const resp = await ghApi('contents/' + path + '?ref=' + GITHUB_BRANCH);
-  if (!resp.ok) return [];
-  const data = await resp.json();
-  return Array.isArray(data) ? data.map(f => f.name) : [];
-}
-
-// ── Auto-publish to GitHub (debounced) ──
-async function autoPublish() {
-  if (publishing) return;
-  const token = getToken();
+async function publishToLAN() {
+  if (!lanSyncActive || publishing) return;
+  const token = getQueueHash();
+  if (token === lastSyncHash) return;
   if (!token) return;
-  const hash = getQueueHash();
-  if (hash === lastPublishedHash) return;
-  if (!hash) return; // empty queue
 
   publishing = true;
-  syncStatus.textContent = 'Syncing...';
-  syncStatus.className = 'syncing';
-
   try {
     const s = getActiveSlideshow();
-
-    // Delete old media files
-    const oldFiles = await listDir('projects/media');
-    for (const name of oldFiles) {
-      await deleteFile('projects/media/' + name);
-    }
-
-    // Upload new media files
-    const manifest = [];
+    const files = [];
     for (let i = 0; i < s.queue.length; i++) {
       const item = s.queue[i];
       const safeName = i + '_' + item.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      syncStatus.textContent = `Syncing ${i + 1}/${s.queue.length}...`;
-      const b64 = await fileToBase64(item.file);
-      await putFile('projects/media/' + safeName, b64, 'Add ' + safeName);
-      manifest.push({
-        filename: safeName,
-        originalName: item.file.name,
-        mimeType: item.file.type,
-        type: item.type,
-        seconds: item.seconds,
-        useFullLength: item.useFullLength,
-        muted: item.muted,
-        hideHeader: item.hideHeader,
+      const data = await fileToBase64(item.file);
+      files.push({
+        filename: safeName, originalName: item.file.name,
+        mimeType: item.file.type, type: item.type,
+        seconds: item.seconds, useFullLength: item.useFullLength,
+        muted: item.muted, hideHeader: item.hideHeader, data,
       });
     }
-
-    // Upload project.json
-    const project = {
-      name: s.name,
-      settings: s.settings,
-      files: manifest,
-      updatedAt: Date.now(),
-    };
-    const projectB64 = btoa(unescape(encodeURIComponent(JSON.stringify(project, null, 2))));
-    await putFile('projects/project.json', projectB64, 'Update slideshow');
-
-    lastPublishedHash = hash;
-    lastRemoteHash = JSON.stringify(project);
-    syncStatus.textContent = 'Synced';
-    syncStatus.className = 'synced';
-  } catch (err) {
-    syncStatus.textContent = 'Sync error — try again';
-    syncStatus.className = 'error';
-    console.error('Publish failed:', err);
+    const resp = await fetch(SYNC_BASE + '/api/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: s.name, settings: s.settings, files }),
+    });
+    const result = await resp.json();
+    if (result.ok) {
+      lastSyncHash = getQueueHash();
+      lastRemoteHash = result.hash;
+    }
+  } catch (e) {
+    console.warn('LAN sync publish failed:', e);
   } finally {
     publishing = false;
   }
@@ -1499,42 +1391,27 @@ async function autoPublish() {
 
 let publishDebounce = null;
 function schedulePublish() {
+  if (!lanSyncActive) return;
   clearTimeout(publishDebounce);
-  publishDebounce = setTimeout(autoPublish, 3000);
+  publishDebounce = setTimeout(publishToLAN, 2000);
 }
 
-// Hook into saveToDB so every change triggers a sync
-const _originalSaveToDB = saveToDB;
-let tokenPrompted = false;
-saveToDB = async function() {
-  await _originalSaveToDB();
-  // If no token yet and we haven't prompted this session, prompt now
-  if (!getToken() && !tokenPrompted) {
-    tokenPrompted = true;
-    ensureToken();
-  }
-  schedulePublish();
-};
-
-// ── Auto-load from GitHub API (instant, no Pages delay) ──
-async function loadFromRemote() {
+async function pollLAN() {
+  if (!lanSyncActive || publishing) return;
   try {
-    // Read project.json directly from the GitHub API (public repo, no auth needed)
-    const resp = await fetch(
-      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/projects/project.json?ref=${GITHUB_BRANCH}`,
-      { headers: { 'Accept': 'application/vnd.github.v3+json' }, cache: 'no-cache' }
-    );
-    if (!resp.ok) return false;
-    const fileData = await resp.json();
-    const project = JSON.parse(decodeURIComponent(escape(atob(fileData.content.replace(/\n/g, '')))));
-    if (!project.files || project.files.length === 0) return false;
+    // Quick hash check first
+    const hashResp = await fetch(SYNC_BASE + '/api/hash', { cache: 'no-cache' });
+    if (!hashResp.ok) return;
+    const { hash } = await hashResp.json();
+    if (!hash || hash === lastRemoteHash) return;
 
-    const remoteHash = JSON.stringify(project);
-    if (remoteHash === lastRemoteHash) return false;
-    lastRemoteHash = remoteHash;
+    // Hash changed — fetch full project
+    const resp = await fetch(SYNC_BASE + '/api/project', { cache: 'no-cache' });
+    if (!resp.ok) return;
+    const { project } = await resp.json();
+    if (!project || !project.files || project.files.length === 0) return;
 
-    syncStatus.textContent = 'Loading slides...';
-    syncStatus.className = 'syncing';
+    lastRemoteHash = hash;
 
     const localQueue = getActiveSlideshow().queue;
     localQueue.forEach(item => URL.revokeObjectURL(item.objectURL));
@@ -1546,14 +1423,8 @@ async function loadFromRemote() {
     loadSlideshowToUI(s);
 
     const durPending = [];
-    for (let i = 0; i < project.files.length; i++) {
-      const f = project.files[i];
-      syncStatus.textContent = `Loading ${i + 1}/${project.files.length}...`;
-      // Fetch media via GitHub API (raw content)
-      const mediaResp = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/projects/media/${f.filename}?ref=${GITHUB_BRANCH}`,
-        { headers: { 'Accept': 'application/vnd.github.v3.raw' }, cache: 'no-cache' }
-      );
+    for (const f of project.files) {
+      const mediaResp = await fetch(SYNC_BASE + '/api/media/' + f.filename, { cache: 'no-cache' });
       if (!mediaResp.ok) continue;
       const blob = await mediaResp.blob();
       const file = new File([blob], f.originalName, { type: f.mimeType });
@@ -1576,37 +1447,29 @@ async function loadFromRemote() {
 
     renderQueue();
     renderTabs();
-    await _originalSaveToDB();
-    lastPublishedHash = getQueueHash();
-    syncStatus.textContent = 'Up to date';
-    syncStatus.className = 'synced';
-    return true;
+    lastSyncHash = getQueueHash();
   } catch (e) {
-    console.warn('Remote load failed:', e);
-    return false;
+    console.warn('LAN poll failed:', e);
   }
 }
 
-// ── One-time fresh start: clear old cached data ──
-async function freshStart() {
-  if (localStorage.getItem('auctionslides_cleared_v2')) return;
-  // Clear IndexedDB
-  await clearDB();
-  // Reset in-memory state
-  slideshows = [];
-  createSlideshow('Slideshow 1');
-  activeSlideshowIndex = 0;
-  loadSlideshowToUI(getActiveSlideshow());
-  renderQueue();
-  renderTabs();
-  localStorage.setItem('auctionslides_cleared_v2', '1');
-}
+// Hook saveToDB to auto-publish changes
+const _origSaveToDB = saveToDB;
+saveToDB = async function() {
+  await _origSaveToDB();
+  schedulePublish();
+};
 
 // ── Init ──
-freshStart().then(() => loadFromDB()).then(async () => {
-  await loadFromRemote();
-  lastPublishedHash = getQueueHash();
-  setInterval(loadFromRemote, 10000);
+loadFromDB().then(async () => {
+  if (SYNC_BASE) {
+    lanSyncActive = true;
+    // Load current state from server
+    await pollLAN();
+    lastSyncHash = getQueueHash();
+    // Poll for changes every 3 seconds
+    setInterval(pollLAN, 3000);
+  }
   startCountdown();
 });
 
