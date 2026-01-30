@@ -1774,11 +1774,14 @@ function checkUrlForCloudId() {
   cloudLinkRow.style.display = '';
   cloudLoadBtn.style.display = '';
 
-  // Set the sync snapshot from local data so the "already up to date" check works
+  // Only auto-load from cloud on first visit (no local data);
+  // otherwise the user can click "Reload from Cloud" manually
   const s = getActiveSlideshow();
-  if (s.queue.length > 0) cloudLastSyncedMeta = buildMetaSnapshot(s);
-
-  loadFromCloud(id);
+  if (s.queue.length === 0) {
+    loadFromCloud(id);
+  } else {
+    cloudLastSyncedMeta = buildMetaSnapshot(s);
+  }
 }
 
 cloudSaveBtn.addEventListener('click', uploadToCloud);
