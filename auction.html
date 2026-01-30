@@ -528,7 +528,7 @@
   </div>
 
   <!-- Queue -->
-  <h3 class="section-heading">Slides</h3>
+  <h3 class="section-heading">Slides <span id="totalDuration" style="float:right; font-weight:400; font-size:0.85rem; color:#888;"></span></h3>
   <ul id="queueList"></ul>
   <p class="empty-msg" id="emptyMsg">No files yet. Drop some above.</p>
 
@@ -1032,6 +1032,17 @@ function renderQueue() {
   queueList.innerHTML = '';
   emptyMsg.style.display = queue.length ? 'none' : 'block';
   goBtn.disabled = queue.length === 0;
+
+  // Update total loop duration
+  const totalDurationEl = document.getElementById('totalDuration');
+  if (queue.length > 0) {
+    const totalSec = queue.reduce((sum, item) => sum + (item.seconds || 0), 0);
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    totalDurationEl.textContent = 'Total loop: ' + (mins > 0 ? mins + 'm ' : '') + secs + 's';
+  } else {
+    totalDurationEl.textContent = '';
+  }
 
   queue.forEach((item, i) => {
     const li = document.createElement('li');
