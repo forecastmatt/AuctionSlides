@@ -1373,7 +1373,9 @@ function startCountdown() {
       liveCountdown.textContent = endText;
       liveCountdown.classList.add('done');
       countdownPreview.textContent = endText;
-      document.getElementById('headerOverlay').classList.add('takeover');
+      const overlay = document.getElementById('headerOverlay');
+      overlay.style.opacity = '1';
+      overlay.classList.add('takeover');
       stage.style.display = 'none';
       fitEndText();
       return;
