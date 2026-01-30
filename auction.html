@@ -1777,11 +1777,7 @@ function checkUrlForCloudId() {
   // Only auto-load from cloud on first visit (no local data);
   // otherwise the user can click "Reload from Cloud" manually
   const s = getActiveSlideshow();
-  if (s.queue.length === 0) {
-    loadFromCloud(id);
-  } else {
-    cloudLastSyncedMeta = buildMetaSnapshot(s);
-  }
+  if (s.queue.length === 0) loadFromCloud(id);
 }
 
 cloudSaveBtn.addEventListener('click', uploadToCloud);
