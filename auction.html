@@ -305,7 +305,7 @@
     text-align: center;
     border-radius: 10px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-    transition: opacity 1s ease;
+    /* no opacity transition — instant hide/show avoids compositing glitch with slide fades */
   }
   #headerOverlay .header-text {
     font-size: 2.6rem;
