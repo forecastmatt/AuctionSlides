@@ -1375,8 +1375,11 @@ function showItemActual(item, index) {
     const img = document.createElement('img');
     img.src = item.objectURL;
     stage.appendChild(img);
-    const fadeIn = () => requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add('visible')));
-    if (img.complete) fadeIn(); else img.addEventListener('load', fadeIn);
+    img.decode().then(() => {
+      requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add('visible')));
+    }).catch(() => {
+      requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add('visible')));
+    });
 
     slideshowTimeout = setTimeout(() => {
       currentIndex = index + 1;
