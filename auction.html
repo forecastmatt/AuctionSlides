@@ -393,6 +393,57 @@
     color: #aaa;
   }
 
+  /* ── GitHub Publish ── */
+  .github-section {
+    margin-top: 24px;
+    padding: 16px;
+    background: #16213e;
+    border: 1px solid #333;
+    border-radius: 8px;
+  }
+  .github-section h3 {
+    font-size: 0.95rem;
+    color: #e2b04a;
+    margin-bottom: 12px;
+  }
+  .github-section .gh-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .github-section input[type="password"],
+  .github-section input[type="text"] {
+    padding: 8px 12px;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: #0f3460;
+    color: #eee;
+    font-size: 0.9rem;
+    flex: 1;
+    min-width: 200px;
+  }
+  .github-section .gh-hint {
+    font-size: 0.75rem;
+    color: #666;
+    margin-top: 4px;
+  }
+  .btn-publish {
+    background: #2ea043;
+    color: #fff;
+  }
+  .btn-publish:hover { background: #278a37; }
+  .btn-publish:disabled { opacity: 0.4; cursor: not-allowed; }
+  #publishStatus {
+    font-size: 0.85rem;
+    color: #aaa;
+    margin-top: 8px;
+    min-height: 1.2em;
+  }
+  #publishStatus.error { color: #e74c3c; }
+  #publishStatus.success { color: #27ae60; }
+
 </style>
 </head>
 <body>
@@ -479,7 +530,19 @@
   <!-- Actions -->
   <div class="btn-row">
     <button class="btn btn-primary" id="goBtn" disabled>Go Fullscreen</button>
+    <button class="btn btn-publish btn" id="publishBtn">Publish to GitHub</button>
     <button class="btn btn-secondary" id="clearBtn">Clear All</button>
+  </div>
+
+  <!-- GitHub Publish Settings -->
+  <div class="github-section">
+    <h3>GitHub Publishing</h3>
+    <div class="gh-row">
+      <input type="password" id="ghToken" placeholder="GitHub Personal Access Token">
+      <button class="btn btn-secondary" id="ghTokenSaveBtn" style="padding:8px 16px; font-size:0.85rem;">Save Token</button>
+    </div>
+    <div class="gh-hint">Create a token at github.com/settings/tokens with "repo" scope.</div>
+    <div id="publishStatus"></div>
   </div>
 
 </div>
@@ -1320,9 +1383,234 @@ document.getElementById('startDate').value =
 headerTextIn.addEventListener('input', () => saveToDB());
 countdownEndTextIn.addEventListener('input', () => saveToDB());
 
-// Load saved state from IndexedDB, then start countdown
+// ── GitHub Publishing ──
+const GITHUB_OWNER = 'forecastmatt';
+const GITHUB_REPO = 'AuctionSlides';
+const GITHUB_BRANCH = 'master';
+const PAGES_BASE = 'https://forecastmatt.github.io/AuctionSlides';
+
+const ghTokenInput = document.getElementById('ghToken');
+const ghTokenSaveBtn = document.getElementById('ghTokenSaveBtn');
+const publishBtn = document.getElementById('publishBtn');
+const publishStatus = document.getElementById('publishStatus');
+
+// Load saved token
+ghTokenInput.value = localStorage.getItem('gh_token') || '';
+
+ghTokenSaveBtn.addEventListener('click', () => {
+  localStorage.setItem('gh_token', ghTokenInput.value.trim());
+  publishStatus.textContent = 'Token saved.';
+  publishStatus.className = 'success';
+});
+
+function setPublishStatus(msg, type) {
+  publishStatus.textContent = msg;
+  publishStatus.className = type || '';
+}
+
+async function ghApiRequest(path, method, body, token) {
+  const resp = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/${path}`, {
+    method: method || 'GET',
+    headers: {
+      'Authorization': 'token ' + token,
+      'Accept': 'application/vnd.github.v3+json',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  return resp;
+}
+
+async function getFileSha(path, token) {
+  const resp = await ghApiRequest('contents/' + path + '?ref=' + GITHUB_BRANCH, 'GET', null, token);
+  if (resp.ok) {
+    const data = await resp.json();
+    return data.sha;
+  }
+  return null;
+}
+
+async function putFile(path, contentBase64, token, message) {
+  const sha = await getFileSha(path, token);
+  const body = {
+    message: message || 'Update ' + path,
+    content: contentBase64,
+    branch: GITHUB_BRANCH,
+  };
+  if (sha) body.sha = sha;
+  const resp = await ghApiRequest('contents/' + path, 'PUT', body, token);
+  if (!resp.ok) {
+    const err = await resp.json();
+    throw new Error(`Failed to upload ${path}: ${err.message || resp.status}`);
+  }
+  return resp.json();
+}
+
+async function deleteFile(path, token) {
+  const sha = await getFileSha(path, token);
+  if (!sha) return;
+  const body = {
+    message: 'Remove ' + path,
+    sha: sha,
+    branch: GITHUB_BRANCH,
+  };
+  const resp = await ghApiRequest('contents/' + path, 'DELETE', body, token);
+  if (!resp.ok && resp.status !== 404) {
+    console.warn('Failed to delete', path);
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function listProjectsMedia(token) {
+  const resp = await ghApiRequest('contents/projects/media?ref=' + GITHUB_BRANCH, 'GET', null, token);
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  if (!Array.isArray(data)) return [];
+  return data.map(f => f.name);
+}
+
+publishBtn.addEventListener('click', async () => {
+  const token = localStorage.getItem('gh_token');
+  if (!token) {
+    setPublishStatus('Enter and save a GitHub token first.', 'error');
+    return;
+  }
+
+  saveUIToActiveSlideshow();
+  const s = getActiveSlideshow();
+  if (s.queue.length === 0) {
+    setPublishStatus('No slides to publish.', 'error');
+    return;
+  }
+
+  publishBtn.disabled = true;
+  try {
+    // 1. Delete old media files
+    setPublishStatus('Cleaning old published files...');
+    const oldFiles = await listProjectsMedia(token);
+    for (const name of oldFiles) {
+      await deleteFile('projects/media/' + name, token);
+    }
+
+    // 2. Upload media files
+    const manifest = [];
+    for (let i = 0; i < s.queue.length; i++) {
+      const item = s.queue[i];
+      const safeName = i + '_' + item.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      setPublishStatus(`Uploading ${i + 1}/${s.queue.length}: ${item.file.name}...`);
+      const b64 = await fileToBase64(item.file);
+      await putFile('projects/media/' + safeName, b64, token, 'Add media: ' + safeName);
+      manifest.push({
+        filename: safeName,
+        originalName: item.file.name,
+        mimeType: item.file.type,
+        type: item.type,
+        seconds: item.seconds,
+        useFullLength: item.useFullLength,
+        muted: item.muted,
+        hideHeader: item.hideHeader,
+      });
+    }
+
+    // 3. Upload project.json
+    setPublishStatus('Uploading project manifest...');
+    const project = {
+      name: s.name,
+      settings: s.settings,
+      files: manifest,
+      publishedAt: new Date().toISOString(),
+    };
+    const projectB64 = btoa(unescape(encodeURIComponent(JSON.stringify(project, null, 2))));
+    await putFile('projects/project.json', projectB64, token, 'Update project manifest');
+
+    setPublishStatus('Published! GitHub Pages will update in 1-2 minutes.', 'success');
+  } catch (err) {
+    setPublishStatus('Error: ' + err.message, 'error');
+    console.error(err);
+  } finally {
+    publishBtn.disabled = false;
+  }
+});
+
+// ── Auto-load from GitHub Pages ──
+async function tryLoadFromGitHubPages() {
+  try {
+    const resp = await fetch(PAGES_BASE + '/projects/project.json', { cache: 'no-cache' });
+    if (!resp.ok) return false;
+    const project = await resp.json();
+    if (!project.files || project.files.length === 0) return false;
+
+    // Check if local data exists
+    const localQueue = getActiveSlideshow().queue;
+    if (localQueue.length > 0) {
+      if (!confirm('A published slideshow was found online ("' + project.name + '"). Load it and replace your current slides?')) {
+        return false;
+      }
+    }
+
+    setPublishStatus('Loading published slideshow...');
+
+    // Clear current queue
+    localQueue.forEach(item => URL.revokeObjectURL(item.objectURL));
+    localQueue.length = 0;
+
+    const s = getActiveSlideshow();
+    s.name = project.name || s.name;
+    Object.assign(s.settings, project.settings);
+    loadSlideshowToUI(s);
+
+    const durPending = [];
+    for (let i = 0; i < project.files.length; i++) {
+      const f = project.files[i];
+      setPublishStatus(`Downloading ${i + 1}/${project.files.length}: ${f.originalName}...`);
+      const mediaResp = await fetch(PAGES_BASE + '/projects/media/' + f.filename, { cache: 'no-cache' });
+      if (!mediaResp.ok) { console.warn('Failed to fetch', f.filename); continue; }
+      const blob = await mediaResp.blob();
+      const file = new File([blob], f.originalName, { type: f.mimeType });
+      const objectURL = URL.createObjectURL(file);
+      const item = {
+        file, objectURL, type: f.type,
+        seconds: f.seconds, useFullLength: f.useFullLength,
+        muted: f.muted || false, hideHeader: f.hideHeader || false,
+        duration: null,
+      };
+      s.queue.push(item);
+      if (item.type === 'video') {
+        durPending.push(getVideoDuration(objectURL).then(dur => {
+          item.duration = dur;
+          if (item.seconds > dur) item.seconds = dur;
+        }));
+      }
+    }
+    if (durPending.length > 0) await Promise.all(durPending);
+
+    renderQueue();
+    renderTabs();
+    saveToDB();
+    setPublishStatus('Loaded published slideshow.', 'success');
+    return true;
+  } catch (e) {
+    console.warn('Could not load from GitHub Pages:', e);
+    return false;
+  }
+}
+
+// Load saved state from IndexedDB, then try GitHub Pages, then start countdown
 loadFromDB().then(() => {
-  startCountdown();
+  tryLoadFromGitHubPages().then(() => {
+    startCountdown();
+  });
 });
 
 </script>
