@@ -1435,12 +1435,11 @@ async function listDir(path) {
 // ── Auto-publish to GitHub (debounced) ──
 async function autoPublish() {
   if (publishing) return;
+  const token = getToken();
+  if (!token) return;
   const hash = getQueueHash();
   if (hash === lastPublishedHash) return;
   if (!hash) return; // empty queue
-
-  const token = ensureToken();
-  if (!token) return;
 
   publishing = true;
   syncStatus.textContent = 'Syncing...';
@@ -1506,17 +1505,28 @@ function schedulePublish() {
 
 // Hook into saveToDB so every change triggers a sync
 const _originalSaveToDB = saveToDB;
+let tokenPrompted = false;
 saveToDB = async function() {
   await _originalSaveToDB();
-  if (getToken()) schedulePublish();
+  // If no token yet and we haven't prompted this session, prompt now
+  if (!getToken() && !tokenPrompted) {
+    tokenPrompted = true;
+    ensureToken();
+  }
+  schedulePublish();
 };
 
-// ── Auto-load from GitHub Pages ──
+// ── Auto-load from GitHub API (instant, no Pages delay) ──
 async function loadFromRemote() {
   try {
-    const resp = await fetch(PAGES_BASE + '/projects/project.json', { cache: 'no-cache' });
+    // Read project.json directly from the GitHub API (public repo, no auth needed)
+    const resp = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/projects/project.json?ref=${GITHUB_BRANCH}`,
+      { headers: { 'Accept': 'application/vnd.github.v3+json' }, cache: 'no-cache' }
+    );
     if (!resp.ok) return false;
-    const project = await resp.json();
+    const fileData = await resp.json();
+    const project = JSON.parse(decodeURIComponent(escape(atob(fileData.content.replace(/\n/g, '')))));
     if (!project.files || project.files.length === 0) return false;
 
     const remoteHash = JSON.stringify(project);
@@ -1539,7 +1549,11 @@ async function loadFromRemote() {
     for (let i = 0; i < project.files.length; i++) {
       const f = project.files[i];
       syncStatus.textContent = `Loading ${i + 1}/${project.files.length}...`;
-      const mediaResp = await fetch(PAGES_BASE + '/projects/media/' + f.filename, { cache: 'no-cache' });
+      // Fetch media via GitHub API (raw content)
+      const mediaResp = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/projects/media/${f.filename}?ref=${GITHUB_BRANCH}`,
+        { headers: { 'Accept': 'application/vnd.github.v3.raw' }, cache: 'no-cache' }
+      );
       if (!mediaResp.ok) continue;
       const blob = await mediaResp.blob();
       const file = new File([blob], f.originalName, { type: f.mimeType });
@@ -1568,6 +1582,7 @@ async function loadFromRemote() {
     syncStatus.className = 'synced';
     return true;
   } catch (e) {
+    console.warn('Remote load failed:', e);
     return false;
   }
 }
@@ -1591,7 +1606,7 @@ async function freshStart() {
 freshStart().then(() => loadFromDB()).then(async () => {
   await loadFromRemote();
   lastPublishedHash = getQueueHash();
-  setInterval(loadFromRemote, 30000);
+  setInterval(loadFromRemote, 10000);
   startCountdown();
 });
 
