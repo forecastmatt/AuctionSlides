@@ -1339,152 +1339,44 @@ document.getElementById('startDate').value =
 headerTextIn.addEventListener('input', () => saveToDB());
 countdownEndTextIn.addEventListener('input', () => saveToDB());
 
-// ── GitHub Publishing ──
-const GITHUB_OWNER = 'forecastmatt';
-const GITHUB_REPO = 'AuctionSlides';
-const GITHUB_BRANCH = 'master';
-const PAGES_BASE = 'https://forecastmatt.github.io/AuctionSlides';
-
+// ── Share: Export self-contained HTML file ──
 const shareBtn = document.getElementById('shareBtn');
 const shareStatus = document.getElementById('shareStatus');
 
-// Auto-capture token from URL parameter (set by setup.sh)
-(function() {
-  const params = new URLSearchParams(location.search);
-  const t = params.get('_token');
-  if (t) {
-    localStorage.setItem('gh_token', t);
-    history.replaceState(null, '', location.pathname);
-  }
-})();
-
-async function getGhToken() {
-  let token = localStorage.getItem('gh_token');
-  if (token) {
-    const resp = await fetch('https://api.github.com/user', {
-      headers: { 'Authorization': 'token ' + token },
-    });
-    if (resp.ok) return token;
-    localStorage.removeItem('gh_token');
-  }
-  alert('Not set up for sharing yet.\n\nRun this in a terminal:\n  ./setup.sh\n\nThat will connect your GitHub account (one time only).');
-  return null;
-}
-
-function setPublishStatus(msg, type) {
-  shareStatus.textContent = msg;
-  shareStatus.className = type || '';
-}
-
-async function ghApiRequest(path, method, body, token) {
-  const resp = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/${path}`, {
-    method: method || 'GET',
-    headers: {
-      'Authorization': 'token ' + token,
-      'Accept': 'application/vnd.github.v3+json',
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  return resp;
-}
-
-async function getFileSha(path, token) {
-  const resp = await ghApiRequest('contents/' + path + '?ref=' + GITHUB_BRANCH, 'GET', null, token);
-  if (resp.ok) {
-    const data = await resp.json();
-    return data.sha;
-  }
-  return null;
-}
-
-async function putFile(path, contentBase64, token, message) {
-  const sha = await getFileSha(path, token);
-  const body = {
-    message: message || 'Update ' + path,
-    content: contentBase64,
-    branch: GITHUB_BRANCH,
-  };
-  if (sha) body.sha = sha;
-  const resp = await ghApiRequest('contents/' + path, 'PUT', body, token);
-  if (!resp.ok) {
-    const err = await resp.json();
-    throw new Error(`Failed to upload ${path}: ${err.message || resp.status}`);
-  }
-  return resp.json();
-}
-
-async function deleteFile(path, token) {
-  const sha = await getFileSha(path, token);
-  if (!sha) return;
-  const body = {
-    message: 'Remove ' + path,
-    sha: sha,
-    branch: GITHUB_BRANCH,
-  };
-  const resp = await ghApiRequest('contents/' + path, 'DELETE', body, token);
-  if (!resp.ok && resp.status !== 404) {
-    console.warn('Failed to delete', path);
-  }
-}
-
-function fileToBase64(file) {
+function fileToDataURL(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result.split(',')[1];
-      resolve(base64);
-    };
+    reader.onload = () => resolve(reader.result);
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
-}
-
-async function listProjectsMedia(token) {
-  const resp = await ghApiRequest('contents/projects/media?ref=' + GITHUB_BRANCH, 'GET', null, token);
-  if (!resp.ok) return [];
-  const data = await resp.json();
-  if (!Array.isArray(data)) return [];
-  return data.map(f => f.name);
 }
 
 shareBtn.addEventListener('click', async () => {
   saveUIToActiveSlideshow();
   const s = getActiveSlideshow();
   if (s.queue.length === 0) {
-    setPublishStatus('Add some slides first.', 'error');
+    shareStatus.textContent = 'Add some slides first.';
+    shareStatus.className = 'error';
     return;
   }
 
   shareBtn.disabled = true;
-  setPublishStatus('Connecting...');
-  const token = await getGhToken();
-  if (!token) {
-    shareBtn.disabled = false;
-    setPublishStatus('', '');
-    return;
-  }
-  try {
-    // 1. Delete old media files
-    setPublishStatus('Cleaning old published files...');
-    const oldFiles = await listProjectsMedia(token);
-    for (const name of oldFiles) {
-      await deleteFile('projects/media/' + name, token);
-    }
+  shareStatus.textContent = 'Building slideshow file...';
+  shareStatus.className = '';
 
-    // 2. Upload media files
-    const manifest = [];
+  try {
+    // Convert all media to data URIs
+    const mediaItems = [];
     for (let i = 0; i < s.queue.length; i++) {
       const item = s.queue[i];
-      const safeName = i + '_' + item.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      setPublishStatus(`Uploading ${i + 1}/${s.queue.length}: ${item.file.name}...`);
-      const b64 = await fileToBase64(item.file);
-      await putFile('projects/media/' + safeName, b64, token, 'Add media: ' + safeName);
-      manifest.push({
-        filename: safeName,
-        originalName: item.file.name,
-        mimeType: item.file.type,
+      shareStatus.textContent = `Packaging ${i + 1}/${s.queue.length}: ${item.file.name}...`;
+      const dataURL = await fileToDataURL(item.file);
+      mediaItems.push({
+        dataURL,
+        name: item.file.name,
         type: item.type,
+        mimeType: item.file.type,
         seconds: item.seconds,
         useFullLength: item.useFullLength,
         muted: item.muted,
@@ -1492,96 +1384,244 @@ shareBtn.addEventListener('click', async () => {
       });
     }
 
-    // 3. Upload project.json
-    setPublishStatus('Uploading project manifest...');
-    const project = {
-      name: s.name,
-      settings: s.settings,
-      files: manifest,
-      publishedAt: new Date().toISOString(),
-    };
-    const projectB64 = btoa(unescape(encodeURIComponent(JSON.stringify(project, null, 2))));
-    await putFile('projects/project.json', projectB64, token, 'Update project manifest');
+    const settings = s.settings;
 
-    const shareUrl = PAGES_BASE + '/auction.html';
-    setPublishStatus('Shared! Link copied. Give it a minute to go live: ' + shareUrl, 'success');
-    navigator.clipboard.writeText(shareUrl).catch(() => {});
+    // Build a standalone HTML file
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${s.name} - Auction Slides</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #000; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+  #headerOverlay {
+    position: absolute; top: 20px; left: 20px; z-index: 10;
+    background: rgb(0,80,0); padding: 20px 30px; text-align: center;
+    border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    transition: opacity 1s ease;
+  }
+  #headerOverlay .header-text {
+    font-size: 2.6rem; font-weight: 700; color: #e2b04a;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.6); margin-bottom: 2px;
+  }
+  #headerOverlay .countdown {
+    font-size: 4rem; font-weight: 700; color: #fff;
+    font-variant-numeric: tabular-nums; text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+    letter-spacing: 2px;
+  }
+  #headerOverlay .countdown.done { color: #27ae60; font-size: 3.6rem; }
+  #headerOverlay.takeover {
+    inset: 0; top: 0; left: 0; border-radius: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 100%; height: 100%;
+  }
+  #headerOverlay.takeover .countdown.done {
+    font-size: 12vw; line-height: 1.1; padding: 0 5vw; word-break: break-word;
+  }
+  #stage {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  }
+  #stage img, #stage video {
+    width: 100%; height: 100%; object-fit: contain;
+    transition: opacity 0.8s ease; opacity: 0;
+  }
+  #stage img.visible, #stage video.visible { opacity: 1; }
+  .start-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 100; color: #eee; font-family: inherit;
+  }
+  .start-overlay h1 { font-size: 2rem; color: #e2b04a; margin-bottom: 8px; }
+  .start-overlay p { color: #888; margin-bottom: 24px; font-size: 1rem; }
+  .start-overlay button {
+    padding: 16px 48px; border: none; border-radius: 10px;
+    background: #e2b04a; color: #1a1a2e; font-size: 1.2rem;
+    font-weight: 700; cursor: pointer;
+  }
+  .start-overlay button:hover { background: #d4a03a; }
+</style>
+</head>
+<body>
+<div class="start-overlay" id="startOverlay">
+  <h1>${s.name}</h1>
+  <p>${mediaItems.length} slide${mediaItems.length !== 1 ? 's' : ''}</p>
+  <button id="startBtn">Start Slideshow</button>
+</div>
+<div id="headerOverlay">
+  <div class="header-text" id="liveHeaderText"></div>
+  <div class="countdown" id="liveCountdown"></div>
+</div>
+<div id="stage"></div>
+<script>
+var SETTINGS = ${JSON.stringify(settings)};
+var MEDIA = ${JSON.stringify(mediaItems)};
+
+var stage = document.getElementById('stage');
+var overlay = document.getElementById('headerOverlay');
+var liveHeaderText = document.getElementById('liveHeaderText');
+var liveCountdown = document.getElementById('liveCountdown');
+var currentIndex = 0;
+var running = false;
+var slideshowTimeout = null;
+
+function parseTime() {
+  var hourVal = SETTINGS.startHour;
+  if (!hourVal) return null;
+  var hours = parseInt(hourVal, 10);
+  var minutes = parseInt(SETTINGS.startMinute, 10);
+  if (SETTINGS.startPeriod === 'AM' && hours === 12) hours = 0;
+  else if (SETTINGS.startPeriod === 'PM' && hours !== 12) hours += 12;
+  var target;
+  if (SETTINGS.startDate) {
+    var parts = SETTINGS.startDate.split('-').map(Number);
+    target = new Date(parts[0], parts[1] - 1, parts[2], hours, minutes, 0, 0);
+  } else {
+    var now = new Date();
+    target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0, 0);
+    if (target <= now) target.setDate(target.getDate() + 1);
+  }
+  return target;
+}
+
+function formatCountdown(ms) {
+  if (ms <= 0) return null;
+  var totalSec = Math.ceil(ms / 1000);
+  var days = Math.floor(totalSec / 86400);
+  var h = Math.floor((totalSec % 86400) / 3600);
+  var m = Math.floor((totalSec % 3600) / 60);
+  var s = totalSec % 60;
+  var hms = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  if (days > 0) return days + 'd ' + hms;
+  return hms;
+}
+
+function fitEndText() {
+  var el = liveCountdown;
+  var maxW = window.innerWidth * 0.9;
+  var maxH = window.innerHeight * 0.8;
+  var size = window.innerWidth * 0.12;
+  el.style.fontSize = size + 'px';
+  while (size > 16 && (el.scrollWidth > maxW || el.scrollHeight > maxH)) {
+    size -= 2;
+    el.style.fontSize = size + 'px';
+  }
+}
+
+function tick() {
+  var target = parseTime();
+  var customText = (SETTINGS.headerText || '').trim();
+  if (!target) {
+    liveHeaderText.textContent = customText || '';
+    liveCountdown.textContent = '';
+    liveCountdown.classList.remove('done');
+    liveCountdown.style.fontSize = '';
+    overlay.classList.remove('takeover');
+    stage.style.display = '';
+    return;
+  }
+  var diff = target - Date.now();
+  if (diff <= 0) {
+    liveHeaderText.textContent = '';
+    var endText = (SETTINGS.countdownEndText || 'Bidding is LIVE!').trim();
+    liveCountdown.textContent = endText;
+    liveCountdown.classList.add('done');
+    overlay.classList.add('takeover');
+    stage.style.display = 'none';
+    fitEndText();
+    return;
+  }
+  var formatted = formatCountdown(diff);
+  liveCountdown.classList.remove('done');
+  liveCountdown.style.fontSize = '';
+  overlay.classList.remove('takeover');
+  stage.style.display = '';
+  liveHeaderText.textContent = customText || '';
+  liveCountdown.textContent = formatted;
+}
+
+function showItem(index) {
+  if (!running) return;
+  if (index >= MEDIA.length) {
+    if (SETTINGS.loopQueue) { currentIndex = 0; showItem(0); }
+    return;
+  }
+  var item = MEDIA[index];
+  var existing = stage.querySelector('.visible');
+  if (existing) {
+    existing.classList.remove('visible');
+    setTimeout(function() { showActual(item, index); }, 800);
+  } else {
+    showActual(item, index);
+  }
+}
+
+function showActual(item, index) {
+  if (!running) return;
+  stage.innerHTML = '';
+  overlay.style.opacity = item.hideHeader ? '0' : '1';
+  if (item.type === 'image') {
+    var img = document.createElement('img');
+    img.src = item.dataURL;
+    stage.appendChild(img);
+    requestAnimationFrame(function() { requestAnimationFrame(function() { img.classList.add('visible'); }); });
+    slideshowTimeout = setTimeout(function() { currentIndex = index + 1; showItem(currentIndex); }, item.seconds * 1000 + 100);
+  } else {
+    var vid = document.createElement('video');
+    vid.src = item.dataURL;
+    vid.autoplay = true;
+    vid.playsInline = true;
+    vid.muted = item.muted;
+    stage.appendChild(vid);
+    requestAnimationFrame(function() { requestAnimationFrame(function() { vid.classList.add('visible'); }); });
+    if (item.useFullLength) {
+      vid.addEventListener('ended', function() { currentIndex = index + 1; showItem(currentIndex); });
+    } else {
+      slideshowTimeout = setTimeout(function() { vid.pause(); currentIndex = index + 1; showItem(currentIndex); }, item.seconds * 1000 + 100);
+    }
+  }
+}
+
+document.getElementById('startBtn').addEventListener('click', function() {
+  document.getElementById('startOverlay').style.display = 'none';
+  running = true;
+  currentIndex = 0;
+  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(function(){});
+  if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(function(){});
+  showItem(0);
+  setInterval(tick, 500);
+  tick();
+});
+<\\/script>
+</body>
+</html>`;
+
+    // Trigger download
+    const blob = new Blob([html.replace('<\\/script>', '</' + 'script>')], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (s.name || 'slideshow').replace(/[^a-zA-Z0-9 _-]/g, '') + '.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    shareStatus.textContent = 'Done! Send the downloaded file to anyone — they just open it.';
+    shareStatus.className = 'success';
   } catch (err) {
-    setPublishStatus('Error: ' + err.message, 'error');
+    shareStatus.textContent = 'Error: ' + err.message;
+    shareStatus.className = 'error';
     console.error(err);
   } finally {
     shareBtn.disabled = false;
   }
 });
 
-// ── Auto-load from GitHub Pages ──
-async function tryLoadFromGitHubPages() {
-  try {
-    const resp = await fetch(PAGES_BASE + '/projects/project.json', { cache: 'no-cache' });
-    if (!resp.ok) return false;
-    const project = await resp.json();
-    if (!project.files || project.files.length === 0) return false;
-
-    // Check if local data exists
-    const localQueue = getActiveSlideshow().queue;
-    if (localQueue.length > 0) {
-      if (!confirm('A published slideshow was found online ("' + project.name + '"). Load it and replace your current slides?')) {
-        return false;
-      }
-    }
-
-    setPublishStatus('Loading published slideshow...');
-
-    // Clear current queue
-    localQueue.forEach(item => URL.revokeObjectURL(item.objectURL));
-    localQueue.length = 0;
-
-    const s = getActiveSlideshow();
-    s.name = project.name || s.name;
-    Object.assign(s.settings, project.settings);
-    loadSlideshowToUI(s);
-
-    const durPending = [];
-    for (let i = 0; i < project.files.length; i++) {
-      const f = project.files[i];
-      setPublishStatus(`Downloading ${i + 1}/${project.files.length}: ${f.originalName}...`);
-      const mediaResp = await fetch(PAGES_BASE + '/projects/media/' + f.filename, { cache: 'no-cache' });
-      if (!mediaResp.ok) { console.warn('Failed to fetch', f.filename); continue; }
-      const blob = await mediaResp.blob();
-      const file = new File([blob], f.originalName, { type: f.mimeType });
-      const objectURL = URL.createObjectURL(file);
-      const item = {
-        file, objectURL, type: f.type,
-        seconds: f.seconds, useFullLength: f.useFullLength,
-        muted: f.muted || false, hideHeader: f.hideHeader || false,
-        duration: null,
-      };
-      s.queue.push(item);
-      if (item.type === 'video') {
-        durPending.push(getVideoDuration(objectURL).then(dur => {
-          item.duration = dur;
-          if (item.seconds > dur) item.seconds = dur;
-        }));
-      }
-    }
-    if (durPending.length > 0) await Promise.all(durPending);
-
-    renderQueue();
-    renderTabs();
-    saveToDB();
-    setPublishStatus('Loaded published slideshow.', 'success');
-    return true;
-  } catch (e) {
-    console.warn('Could not load from GitHub Pages:', e);
-    return false;
-  }
-}
-
-// Load saved state from IndexedDB, then try GitHub Pages, then start countdown
+// Load saved state from IndexedDB, then start countdown
 loadFromDB().then(() => {
-  tryLoadFromGitHubPages().then(() => {
-    startCountdown();
-  });
+  startCountdown();
 });
 
 </script>
