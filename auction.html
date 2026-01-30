@@ -535,6 +535,7 @@
   <!-- Actions -->
   <div class="btn-row">
     <button class="btn btn-primary" id="goBtn" disabled>Go Fullscreen</button>
+    <button class="btn btn-secondary" id="sleepBtn">Prevent Sleep Guide</button>
     <button class="btn btn-secondary" id="clearBtn">Clear All</button>
     <button class="btn btn-secondary" id="exportBtn">Export Slideshow</button>
     <button class="btn btn-secondary" id="importBtn">Import Slideshow</button>
@@ -906,6 +907,7 @@ const queueList     = document.getElementById('queueList');
 const emptyMsg      = document.getElementById('emptyMsg');
 const goBtn         = document.getElementById('goBtn');
 const clearBtn      = document.getElementById('clearBtn');
+const sleepBtn      = document.getElementById('sleepBtn');
 const headerTextIn  = document.getElementById('headerText');
 const countdownPreview = document.getElementById('countdownPreview');
 const defaultSecIn  = document.getElementById('defaultSeconds');
@@ -1231,6 +1233,35 @@ fileInput.addEventListener('change', () => {
 });
 
 // Clear all
+sleepBtn.addEventListener('click', () => {
+  const isLinux = navigator.userAgent.includes('Linux') && !navigator.userAgent.includes('Android');
+  const isMac = navigator.userAgent.includes('Mac');
+  const isWindows = navigator.userAgent.includes('Win');
+  let msg = 'If your computer still goes to sleep during the slideshow, disable sleep in your OS settings:\n\n';
+  if (isLinux) {
+    msg += 'LINUX:\n';
+    msg += '• GNOME: Settings → Power → Automatic Suspend → Off\n';
+    msg += '• Also set Screen Blank → Never\n';
+    msg += '• Terminal: gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type "nothing"\n';
+    msg += '• Terminal: gsettings set org.gnome.desktop.session idle-delay 0\n';
+    msg += '• KDE: System Settings → Power Management → disable sleep\n';
+  } else if (isMac) {
+    msg += 'MAC:\n';
+    msg += '• System Settings → Displays → Advanced → Prevent automatic sleeping when display is off\n';
+    msg += '• Or run in Terminal: caffeinate -d &\n';
+    msg += '  (keeps display awake until you close Terminal)\n';
+  } else if (isWindows) {
+    msg += 'WINDOWS:\n';
+    msg += '• Settings → System → Power & sleep → set Sleep to "Never"\n';
+    msg += '• Also set Screen to "Never" or a long timeout\n';
+    msg += '• Or run in Command Prompt: powercfg -change -standby-timeout-ac 0\n';
+  } else {
+    msg += '• Check your system power settings and disable auto-sleep/screen off.\n';
+  }
+  msg += '\nThe slideshow already tries to prevent sleep automatically, but some systems require the OS setting.';
+  alert(msg);
+});
+
 clearBtn.addEventListener('click', () => {
   const queue = getActiveSlideshow().queue;
   if (queue.length === 0) return;
@@ -1250,21 +1281,43 @@ function startPresentation() {
   controlDeck.style.display = 'none';
   presentation.style.display = 'block';
 
-  if ('wakeLock' in navigator) {
-    navigator.wakeLock.request('screen').then(lock => { wakeLock = lock; }).catch(() => {});
-  } else {
-    // Fallback: a tiny looping video keeps the OS awake in browsers without Wake Lock API
-    wakeLockVideo = document.createElement('video');
-    wakeLockVideo.setAttribute('playsinline', '');
-    wakeLockVideo.setAttribute('muted', '');
-    wakeLockVideo.muted = true;
-    wakeLockVideo.loop = true;
-    wakeLockVideo.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1';
-    // Minimal valid mp4 (black 1x1 pixel, ~1s) encoded as base64
-    wakeLockVideo.src = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAABltZGF0AAAA0wYF//+v3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NCByMzEwOCAzMWUxOWY5IC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyMyAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTAgcmVmPTEgZGVibG9jaz0wOjA6MCBhbmFseXNlPTA6MCBtZT1lc2Egc3VibWU9OSBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0wIG1lX3JhbmdlPTQgY2hyb21hX21lPTEgdHJlbGxpcz0wIDh4OGRjdD0wIGNxbT0wIGRlYWR6b25lPTIxLDExIGZhc3RfcHNraXA9MSBjaHJvbWFfcXBfb2Zmc2V0PTAgdGhyZWFkcz0xIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MCB3ZWlnaHRwPTAga2V5aW50PTI1MCBrZXlpbnRfbWluPTI1IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByYz1jcmYgbWJ0cmVlPTAgY3JmPTQwLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgcGJfcmF0aW89MS4zMCBhcT0wAAACaW1vb3YAAABsbXZoZAAAAAAAAAAAAAAAAAAAA+gAAAPoAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAGRdWR0YQAAAIltZXRhAAAAAAAAACFoZGxyAAAAAAAAAABtZGlyAAAAAAAAAAAAAAAAAAAAXGlsc3QAAAAkqW5hbQAAABxkYXRhAAAAAQAAAABCbGFuawAAACmpdG9vAAAAIWRhdGEAAAABAAAAACBMYXZmNjAuMTYuMTAwAAABk3RyYWsAAABcdGtoZAAAAA8AAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAABAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAR0ZHNhAAAAFHVybCAAAAABAAAAAm1kaWEAAAAgbWRoZAAAAAAAAAAAAAAAAAAAACgAAAAoVcQAAAAAAC1oZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAArm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAG5zdGJsAAAARnN0c2QAAAAAAAAAAQAAADZhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAQABAEgAAABIAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABhzdHRzAAAAAAAAAAABAAAAAgAAFAAAABRzdHNzAAAAAAAAAAEAAAABAAAAEHN0c3oAAAAAAAAAAAAAAAAAAAAQc3RjbwAAAAAAAAABAAAAMA==';
-    document.body.appendChild(wakeLockVideo);
-    wakeLockVideo.play().catch(() => {});
+  // Canvas-based MediaStream video — browsers treat active MediaStream playback as real video
+  const wakeLockCanvas = document.createElement('canvas');
+  wakeLockCanvas.width = 2;
+  wakeLockCanvas.height = 2;
+  const ctx = wakeLockCanvas.getContext('2d');
+  ctx.fillRect(0, 0, 2, 2);
+  const stream = wakeLockCanvas.captureStream(1); // 1 fps
+  wakeLockVideo = document.createElement('video');
+  wakeLockVideo.setAttribute('playsinline', '');
+  wakeLockVideo.setAttribute('muted', '');
+  wakeLockVideo.muted = true;
+  wakeLockVideo.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1';
+  wakeLockVideo.srcObject = stream;
+  document.body.appendChild(wakeLockVideo);
+  wakeLockVideo.play().catch(() => {});
+  // Keep the canvas stream alive by drawing a pixel periodically
+  window._wakeLockInterval = setInterval(() => {
+    ctx.fillStyle = ctx.fillStyle === '#000000' ? '#000001' : '#000000';
+    ctx.fillRect(0, 0, 1, 1);
+    if (wakeLockVideo && wakeLockVideo.paused) wakeLockVideo.play().catch(() => {});
+  }, 30000);
+
+  // Also use Wake Lock API if available
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+    }
   }
+  requestWakeLock();
+  // Re-acquire wake lock when tab becomes visible again
+  window._wakeLockVisHandler = () => {
+    if (document.visibilityState === 'visible' && running) {
+      requestWakeLock();
+      if (wakeLockVideo && wakeLockVideo.paused) wakeLockVideo.play().catch(() => {});
+    }
+  };
+  document.addEventListener('visibilitychange', window._wakeLockVisHandler);
 
   if (document.documentElement.requestFullscreen) {
     document.documentElement.requestFullscreen().catch(() => {});
@@ -1278,7 +1331,14 @@ function stopPresentation() {
   clearTimeout(slideshowTimeout);
 
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
-  if (wakeLockVideo) { wakeLockVideo.pause(); wakeLockVideo.remove(); wakeLockVideo = null; }
+  if (wakeLockVideo) {
+    wakeLockVideo.pause();
+    if (wakeLockVideo.srcObject) { wakeLockVideo.srcObject.getTracks().forEach(t => t.stop()); }
+    wakeLockVideo.remove();
+    wakeLockVideo = null;
+  }
+  if (window._wakeLockInterval) { clearInterval(window._wakeLockInterval); window._wakeLockInterval = null; }
+  if (window._wakeLockVisHandler) { document.removeEventListener('visibilitychange', window._wakeLockVisHandler); window._wakeLockVisHandler = null; }
 
   stage.innerHTML = '';
 
