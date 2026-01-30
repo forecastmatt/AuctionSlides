@@ -1549,6 +1549,17 @@ async function applyReceivedSlides(received, settingsData, action) {
 }
 
 // ── WebRTC Slide Sharing (PeerJS) ──
+const ICE_SERVERS = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: 'turn:freestun.net:3478', username: 'free', credential: 'free' },
+      { urls: 'turn:freestun.net:3478?transport=tcp', username: 'free', credential: 'free' },
+    ]
+  }
+};
+
 let sharePeer = null;
 
 function generateRoomCode() {
@@ -1578,7 +1589,7 @@ document.getElementById('shareBtn').addEventListener('click', () => {
 
   const roomCode = 'AUCTION-' + customCode.replace(/[^A-Z0-9]/g, '');
   cleanupPeer();
-  sharePeer = new Peer(roomCode);
+  sharePeer = new Peer(roomCode, ICE_SERVERS);
 
   sharePeer.on('open', (id) => {
     codeEl.textContent = id;
@@ -1672,7 +1683,7 @@ function startReceive(code) {
 
   statusEl.textContent = 'Connecting...';
   cleanupPeer();
-  sharePeer = new Peer();
+  sharePeer = new Peer(ICE_SERVERS);
 
   sharePeer.on('open', () => {
     const conn = sharePeer.connect(code, { reliable: true, serialization: 'binary' });
