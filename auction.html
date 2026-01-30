@@ -480,7 +480,10 @@
   <div class="btn-row">
     <button class="btn btn-primary" id="goBtn" disabled>Go Fullscreen</button>
     <button class="btn btn-secondary" id="clearBtn">Clear All</button>
+    <button class="btn btn-secondary" id="exportBtn">Export Slideshow</button>
+    <button class="btn btn-secondary" id="importBtn">Import Slideshow</button>
   </div>
+  <input type="file" id="importFileInput" accept=".json" style="display:none">
 
 </div>
 
@@ -1319,6 +1322,129 @@ document.getElementById('startDate').value =
 });
 headerTextIn.addEventListener('input', () => saveToDB());
 countdownEndTextIn.addEventListener('input', () => saveToDB());
+
+// ── Export / Import ──
+const exportBtn = document.getElementById('exportBtn');
+const importBtn = document.getElementById('importBtn');
+const importFileInput = document.getElementById('importFileInput');
+
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function dataURLtoFile(dataURL, name) {
+  const [header, b64] = dataURL.split(',');
+  const mime = header.match(/:(.*?);/)[1];
+  const binary = atob(b64);
+  const arr = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  return new File([arr], name, { type: mime });
+}
+
+exportBtn.addEventListener('click', async () => {
+  saveUIToActiveSlideshow();
+  const s = getActiveSlideshow();
+  exportBtn.textContent = 'Exporting...';
+  exportBtn.disabled = true;
+  try {
+    const slides = [];
+    for (const item of s.queue) {
+      const dataURL = await fileToDataURL(item.file);
+      slides.push({
+        name: item.file.name,
+        mimeType: item.file.type,
+        type: item.type,
+        seconds: item.seconds,
+        useFullLength: item.useFullLength,
+        muted: item.muted,
+        hideHeader: item.hideHeader,
+        dataURL,
+      });
+    }
+    const payload = {
+      version: 1,
+      name: s.name,
+      settings: { ...s.settings },
+      slides,
+    };
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = s.name + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Export failed: ' + e.message);
+  } finally {
+    exportBtn.textContent = 'Export Slideshow';
+    exportBtn.disabled = false;
+  }
+});
+
+importBtn.addEventListener('click', () => importFileInput.click());
+
+importFileInput.addEventListener('change', async () => {
+  const jsonFile = importFileInput.files[0];
+  if (!jsonFile) return;
+  importFileInput.value = '';
+  importBtn.textContent = 'Importing...';
+  importBtn.disabled = true;
+  try {
+    const text = await jsonFile.text();
+    const data = JSON.parse(text);
+    if (!data.version || data.version !== 1) {
+      alert('Unsupported file format or version.');
+      return;
+    }
+    // Determine name
+    let name = data.name || 'Imported Slideshow';
+    if (slideshows.some(s => s.name === name)) name += ' (imported)';
+
+    saveUIToActiveSlideshow();
+    const newShow = createSlideshow(name);
+    if (data.settings) Object.assign(newShow.settings, data.settings);
+
+    const durPending = [];
+    for (const slide of (data.slides || [])) {
+      const file = dataURLtoFile(slide.dataURL, slide.name);
+      const objectURL = URL.createObjectURL(file);
+      const item = {
+        file, objectURL,
+        type: slide.type,
+        seconds: slide.seconds,
+        useFullLength: slide.useFullLength,
+        muted: slide.muted || false,
+        hideHeader: slide.hideHeader || false,
+        duration: null,
+      };
+      newShow.queue.push(item);
+      if (item.type === 'video') {
+        durPending.push(getVideoDuration(objectURL).then(dur => {
+          item.duration = dur;
+          if (item.seconds > dur) item.seconds = dur;
+        }));
+      }
+    }
+    if (durPending.length > 0) await Promise.all(durPending);
+
+    activeSlideshowIndex = slideshows.length - 1;
+    loadSlideshowToUI(newShow);
+    renderQueue();
+    renderTabs();
+    saveToDB();
+  } catch (e) {
+    alert('Import failed: ' + e.message);
+  } finally {
+    importBtn.textContent = 'Import Slideshow';
+    importBtn.disabled = false;
+  }
+});
 
 // Load saved state from IndexedDB, then start countdown
 loadFromDB().then(() => {
