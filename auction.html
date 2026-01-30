@@ -393,22 +393,16 @@
     color: #aaa;
   }
 
-  .btn-share {
-    background: #2ea043;
-    color: #fff;
-  }
-  .btn-share:hover { background: #278a37; }
-  .btn-share:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  #shareStatus {
+  #syncStatus {
     text-align: center;
-    font-size: 0.85rem;
-    color: #aaa;
-    min-height: 1.2em;
+    font-size: 0.8rem;
+    color: #555;
+    min-height: 1em;
     margin-bottom: 8px;
   }
-  #shareStatus.error { color: #e74c3c; }
-  #shareStatus.success { color: #27ae60; }
+  #syncStatus.syncing { color: #e2b04a; }
+  #syncStatus.synced { color: #27ae60; }
+  #syncStatus.error { color: #e74c3c; }
 
 </style>
 </head>
@@ -494,10 +488,9 @@
   <p class="empty-msg" id="emptyMsg">No files yet. Drop some above.</p>
 
   <!-- Actions -->
-  <div id="shareStatus"></div>
+  <div id="syncStatus"></div>
   <div class="btn-row">
     <button class="btn btn-primary" id="goBtn" disabled>Go Fullscreen</button>
-    <button class="btn btn-share" id="shareBtn" style="display:none;">Share</button>
     <button class="btn btn-secondary" id="clearBtn">Clear All</button>
   </div>
 
@@ -1339,11 +1332,14 @@ document.getElementById('startDate').value =
 headerTextIn.addEventListener('input', () => saveToDB());
 countdownEndTextIn.addEventListener('input', () => saveToDB());
 
-// ── Sharing ──
-const SHARE_SERVER = 'http://127.0.0.1:8787';
+// ── Auto-Sync ──
+const SYNC_SERVER = 'http://127.0.0.1:8787';
 const PAGES_BASE = 'https://forecastmatt.github.io/AuctionSlides';
-const shareBtn = document.getElementById('shareBtn');
-const shareStatus = document.getElementById('shareStatus');
+const syncStatus = document.getElementById('syncStatus');
+let isPublisher = false;
+let syncTimer = null;
+let publishing = false;
+let lastPublishedHash = '';
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -1354,33 +1350,42 @@ function fileToBase64(file) {
   });
 }
 
-// Detect if local share server is running (only shows Share on this computer)
-async function checkShareServer() {
+// Quick hash of current state to detect changes
+function getQueueHash() {
+  const s = getActiveSlideshow();
+  const parts = [s.name, JSON.stringify(s.settings)];
+  for (const item of s.queue) {
+    parts.push(item.file.name, item.file.size, item.type, item.seconds,
+      item.useFullLength, item.muted, item.hideHeader);
+  }
+  return parts.join('|');
+}
+
+async function checkSyncServer() {
   try {
-    const resp = await fetch(SHARE_SERVER + '/ping', { signal: AbortSignal.timeout(1000) });
-    if (resp.ok) { shareBtn.style.display = ''; return true; }
+    const resp = await fetch(SYNC_SERVER + '/ping', { signal: AbortSignal.timeout(1000) });
+    if (resp.ok) { isPublisher = true; return true; }
   } catch (e) {}
   return false;
 }
 
-shareBtn.addEventListener('click', async () => {
-  saveUIToActiveSlideshow();
-  const s = getActiveSlideshow();
-  if (s.queue.length === 0) {
-    shareStatus.textContent = 'Add some slides first.';
-    shareStatus.className = 'error';
-    return;
-  }
+// Auto-publish current state to GitHub (publisher only)
+async function autoPublish() {
+  if (!isPublisher || publishing) return;
+  const hash = getQueueHash();
+  if (hash === lastPublishedHash) return;
 
-  shareBtn.disabled = true;
-  shareStatus.textContent = 'Packaging slides...';
-  shareStatus.className = '';
+  const s = getActiveSlideshow();
+  if (s.queue.length === 0) return;
+
+  publishing = true;
+  syncStatus.textContent = 'Syncing...';
+  syncStatus.className = 'syncing';
 
   try {
     const files = [];
     for (let i = 0; i < s.queue.length; i++) {
       const item = s.queue[i];
-      shareStatus.textContent = `Packaging ${i + 1}/${s.queue.length}: ${item.file.name}...`;
       const safeName = i + '_' + item.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const data = await fileToBase64(item.file);
       files.push({
@@ -1396,47 +1401,62 @@ shareBtn.addEventListener('click', async () => {
       });
     }
 
-    shareStatus.textContent = 'Publishing...';
-    const resp = await fetch(SHARE_SERVER + '/publish', {
+    const resp = await fetch(SYNC_SERVER + '/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: s.name,
-        settings: s.settings,
-        files: files,
-      }),
+      body: JSON.stringify({ name: s.name, settings: s.settings, files }),
     });
     const result = await resp.json();
     if (result.ok) {
-      const url = PAGES_BASE + '/auction.html';
-      shareStatus.textContent = 'Shared! Live in ~1 min at: ' + url;
-      shareStatus.className = 'success';
-      navigator.clipboard.writeText(url).catch(() => {});
+      lastPublishedHash = hash;
+      syncStatus.textContent = 'Synced';
+      syncStatus.className = 'synced';
     } else {
-      throw new Error(result.error || 'Unknown error');
+      throw new Error(result.error);
     }
   } catch (err) {
-    shareStatus.textContent = 'Error: ' + err.message;
-    shareStatus.className = 'error';
+    syncStatus.textContent = 'Sync error';
+    syncStatus.className = 'error';
+    console.error('Auto-publish failed:', err);
   } finally {
-    shareBtn.disabled = false;
+    publishing = false;
   }
-});
+}
 
-// ── Auto-load from GitHub Pages ──
-async function tryLoadFromGitHubPages() {
+// Debounced publish — waits 3s after last change before syncing
+let publishDebounce = null;
+function schedulePublish() {
+  if (!isPublisher) return;
+  clearTimeout(publishDebounce);
+  publishDebounce = setTimeout(autoPublish, 3000);
+}
+
+// Hook into saveToDB so every change triggers a sync
+const _originalSaveToDB = saveToDB;
+saveToDB = async function() {
+  await _originalSaveToDB();
+  schedulePublish();
+};
+
+// ── Auto-load from GitHub Pages (viewer devices) ──
+let lastRemoteHash = '';
+
+async function loadFromRemote() {
   try {
     const resp = await fetch(PAGES_BASE + '/projects/project.json', { cache: 'no-cache' });
-    if (!resp.ok) return;
+    if (!resp.ok) return false;
     const project = await resp.json();
-    if (!project.files || project.files.length === 0) return;
+    if (!project.files || project.files.length === 0) return false;
+
+    // Build a hash to detect changes
+    const remoteHash = JSON.stringify(project);
+    if (remoteHash === lastRemoteHash) return false;
+    lastRemoteHash = remoteHash;
+
+    syncStatus.textContent = 'Loading slides...';
+    syncStatus.className = 'syncing';
 
     const localQueue = getActiveSlideshow().queue;
-    if (localQueue.length > 0) {
-      if (!confirm('A shared slideshow ("' + project.name + '") is available. Load it?')) return;
-    }
-
-    shareStatus.textContent = 'Loading shared slideshow...';
     localQueue.forEach(item => URL.revokeObjectURL(item.objectURL));
     localQueue.length = 0;
 
@@ -1448,7 +1468,7 @@ async function tryLoadFromGitHubPages() {
     const durPending = [];
     for (let i = 0; i < project.files.length; i++) {
       const f = project.files[i];
-      shareStatus.textContent = `Loading ${i + 1}/${project.files.length}: ${f.originalName}...`;
+      syncStatus.textContent = `Loading ${i + 1}/${project.files.length}...`;
       const mediaResp = await fetch(PAGES_BASE + '/projects/media/' + f.filename, { cache: 'no-cache' });
       if (!mediaResp.ok) continue;
       const blob = await mediaResp.blob();
@@ -1472,18 +1492,31 @@ async function tryLoadFromGitHubPages() {
 
     renderQueue();
     renderTabs();
-    saveToDB();
-    shareStatus.textContent = 'Loaded shared slideshow.';
-    shareStatus.className = 'success';
+    syncStatus.textContent = 'Up to date';
+    syncStatus.className = 'synced';
+    return true;
   } catch (e) {
-    console.warn('Could not load from GitHub Pages:', e);
+    return false;
   }
 }
 
-// Load saved state, check for shared slides, start countdown
+// Load saved state, detect role, start sync loop
 loadFromDB().then(async () => {
-  checkShareServer();
-  await tryLoadFromGitHubPages();
+  const hasServer = await checkSyncServer();
+
+  if (hasServer) {
+    // Publisher: auto-sync changes outward
+    syncStatus.textContent = 'Changes sync automatically';
+    syncStatus.className = 'synced';
+    // Also load remote once in case slides were added elsewhere
+    await loadFromRemote();
+    lastPublishedHash = getQueueHash();
+  } else {
+    // Viewer: load from remote and poll for updates
+    await loadFromRemote();
+    setInterval(loadFromRemote, 15000);
+  }
+
   startCountdown();
 });
 
