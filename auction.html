@@ -815,7 +815,6 @@ async function loadFromDB() {
         slideshows.push(s);
       }
       if (durPending.length > 0) await Promise.all(durPending);
-      await Promise.all(slideshows.map(s => preloadImages(s.queue)));
     } else {
       // Migration from v1: check old settings/media stores
       const settingsTx = db.transaction(SETTINGS_STORE, 'readonly');
@@ -866,7 +865,6 @@ async function loadFromDB() {
         }
       }
       if (durPending.length > 0) await Promise.all(durPending);
-      await preloadImages(s.queue);
       activeSlideshowIndex = 0;
     }
 
@@ -1029,36 +1027,6 @@ function formatCountdown(ms) {
   return hms;
 }
 
-// ── Auto-scroll while dragging near viewport edges ──
-let _dragScrollRAF = null;
-let _dragMouseY = 0;
-const SCROLL_EDGE = 200;  // px from edge to start scrolling
-const SCROLL_MAX  = 18;   // max px per frame at the very edge
-
-function _dragScrollFrame() {
-  const y = _dragMouseY;
-  if (y > 0 && y < SCROLL_EDGE) {
-    const strength = Math.pow(1 - y / SCROLL_EDGE, 2);
-    window.scrollBy(0, -SCROLL_MAX * strength);
-  } else if (y > window.innerHeight - SCROLL_EDGE && y < window.innerHeight) {
-    const strength = Math.pow(1 - (window.innerHeight - y) / SCROLL_EDGE, 2);
-    window.scrollBy(0, SCROLL_MAX * strength);
-  }
-  _dragScrollRAF = requestAnimationFrame(_dragScrollFrame);
-}
-
-function _trackDragY(e) { _dragMouseY = e.clientY; }
-
-function startDragAutoScroll() {
-  document.addEventListener('dragover', _trackDragY);
-  _dragScrollRAF = requestAnimationFrame(_dragScrollFrame);
-}
-
-function stopDragAutoScroll() {
-  document.removeEventListener('dragover', _trackDragY);
-  if (_dragScrollRAF) { cancelAnimationFrame(_dragScrollRAF); _dragScrollRAF = null; }
-}
-
 // ── Rendering the queue list ──
 function renderQueue() {
   const queue = getActiveSlideshow().queue;
@@ -1174,14 +1142,13 @@ function renderQueue() {
     });
     li.appendChild(removeBtn);
 
-    // Drag-and-drop reorder (with auto-scroll near edges)
+    // Drag-and-drop reorder
     li.addEventListener('dragstart', (e) => {
       li.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', i);
-      startDragAutoScroll();
     });
-    li.addEventListener('dragend', () => { li.classList.remove('dragging'); stopDragAutoScroll(); });
+    li.addEventListener('dragend', () => li.classList.remove('dragging'));
     li.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
@@ -1236,15 +1203,6 @@ function addFiles(files) {
     renderQueue();
     saveToDB();
   }
-}
-
-function preloadImages(queue) {
-  return Promise.all(queue.map(item => {
-    if (item.type !== 'image') return Promise.resolve();
-    const img = new Image();
-    img.src = item.objectURL;
-    return img.decode().catch(() => {});
-  }));
 }
 
 function getVideoDuration(url) {
@@ -1783,7 +1741,6 @@ async function loadFromCloud(id) {
       }
     }
     if (durPending.length > 0) await Promise.all(durPending);
-    await preloadImages(s.queue);
 
     loadSlideshowToUI(s);
     renderQueue();
