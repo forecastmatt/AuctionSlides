@@ -1541,6 +1541,7 @@ importFileInput.addEventListener('change', async () => {
 // ── Cloud Sync (Cloudflare R2) ──
 const WORKER_URL = 'https://auctionslides-api.forecastmatt.workers.dev';
 let cloudSlideshowId = null;
+let cloudLastSyncedMeta = null; // JSON string snapshot of metadata at last sync
 
 const cloudSaveBtn = document.getElementById('cloudSaveBtn');
 const cloudLoadBtn = document.getElementById('cloudLoadBtn');
@@ -1558,9 +1559,30 @@ function generateCloudId() {
   return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
 }
 
+function buildMetaSnapshot(s) {
+  return JSON.stringify({
+    name: s.name,
+    settings: s.settings,
+    slides: s.queue.map(item => ({
+      filename: item.file.name,
+      mimeType: item.file.type,
+      type: item.type,
+      seconds: item.seconds,
+      useFullLength: item.useFullLength,
+      muted: item.muted,
+      hideHeader: item.hideHeader,
+    })),
+  });
+}
+
 async function uploadToCloud() {
   saveUIToActiveSlideshow();
   const s = getActiveSlideshow();
+
+  if (cloudLastSyncedMeta && buildMetaSnapshot(s) === cloudLastSyncedMeta) {
+    setCloudStatus('No changes to save', 'done');
+    return;
+  }
 
   cloudSaveBtn.disabled = true;
   setCloudStatus('Uploading...', 'syncing');
@@ -1620,6 +1642,7 @@ async function uploadToCloud() {
     cloudLoadBtn.style.display = '';
     history.replaceState(null, '', '?id=' + cloudSlideshowId);
 
+    cloudLastSyncedMeta = buildMetaSnapshot(s);
     setCloudStatus('Saved to cloud', 'done');
   } catch (e) {
     setCloudStatus('Upload failed: ' + e.message, 'error');
@@ -1643,6 +1666,27 @@ async function loadFromCloud(id) {
       return;
     }
     const metadata = await metaResp.json();
+
+    // Check if cloud version is the same as what we already have
+    const cloudSnap = JSON.stringify({
+      name: metadata.name,
+      settings: metadata.settings,
+      slides: (metadata.slides || []).map(sl => ({
+        filename: sl.filename,
+        mimeType: sl.mimeType,
+        type: sl.type,
+        seconds: sl.seconds,
+        useFullLength: sl.useFullLength,
+        muted: sl.muted,
+        hideHeader: sl.hideHeader,
+      })),
+    });
+    if (cloudLastSyncedMeta && cloudSnap === cloudLastSyncedMeta) {
+      setCloudStatus('Already up to date', 'done');
+      cloudSaveBtn.disabled = false;
+      return;
+    }
+
     cloudSlideshowId = id;
 
     const s = getActiveSlideshow();
@@ -1692,6 +1736,7 @@ async function loadFromCloud(id) {
     cloudLoadBtn.style.display = '';
     history.replaceState(null, '', '?id=' + cloudSlideshowId);
 
+    cloudLastSyncedMeta = buildMetaSnapshot(s);
     setCloudStatus('Loaded from cloud', 'done');
   } catch (e) {
     setCloudStatus('Load failed: ' + e.message, 'error');
